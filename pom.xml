@@ -508,6 +508,17 @@
                             <includes>
                                 <include>com/householdledger/ledger/domain/**/*.class</include>
                                 <include>com/householdledger/ledger/internal/**/*.class</include>
+                                <!--
+                                    Phase 2 extends the gate to the identity
+                                    module. PRD §5 scopes the target to "domain
+                                    and service layers", and identity's service
+                                    layer qualifies — leaving it out would let
+                                    authentication code, the most
+                                    security-sensitive in the project, land
+                                    entirely unmeasured.
+                                -->
+                                <include>com/householdledger/identity/domain/**/*.class</include>
+                                <include>com/householdledger/identity/internal/**/*.class</include>
                             </includes>
                             <rules>
                                 <rule>

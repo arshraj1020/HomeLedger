@@ -25,7 +25,14 @@ spring:
 
 security:
   jwt:
-    secret: ${JWT_SECRET:change-me-in-every-real-environment-this-is-a-dev-only-default-value}
+    # PRD §5: "No plaintext secrets in repo; JWT secret via env var."
+    # The fallback is a clearly-labelled local development placeholder, not a
+    # secret: it exists so `docker compose up` works out of the box. Any real
+    # deployment MUST set JWT_SECRET. JwtProperties.validate() rejects a
+    # secret shorter than 32 bytes at startup rather than issuing weakly
+    # signed tokens.
+    secret: ${JWT_SECRET:local-development-only-not-a-secret-replace-via-JWT_SECRET-env-var}
+    # PRD §FR-1: 15-minute access token, 7-day rotating refresh token.
     access-token-ttl-minutes: 15
     refresh-token-ttl-days: 7
 

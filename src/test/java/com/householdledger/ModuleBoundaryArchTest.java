@@ -9,9 +9,9 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 /**
  * Module boundary enforcement (PRD §6.1): no module may reach into another
- * module's {@code internal} package. Only {@code ledger.internal} exists
- * today; the rule is written generically so it keeps applying as
- * identity/reporting/web grow their own internal packages in later phases.
+ * module's {@code internal} package. {@code ledger.internal} and — as of
+ * Phase 2 — {@code identity.internal} are both guarded; the reporting
+ * module gains its rule when it acquires internals in Phase 6.
  */
 class ModuleBoundaryArchTest {
 
@@ -30,17 +30,58 @@ class ModuleBoundaryArchTest {
                 .importPackages(BASE));
     }
 
+    /**
+     * Phase 2's addition. The web layer talks to {@code identity.api} only;
+     * JPA entities, repositories, the JWT services and the security config
+     * all stay behind the module boundary. Without this rule it would be
+     * trivially easy for a controller in a later phase to inject
+     * {@code MemberRepository} directly and leak a password hash into a DTO.
+     */
+    @Test
+    void identityInternalIsNotReachedFromOutsideIdentity() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideOutsideOfPackage(BASE + ".identity..")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".identity.internal..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * The ledger module must not depend on identity at all. Household
+     * scoping is passed in as a plain {@code UUID} by the caller (PRD §FR-1),
+     * so the ledger never needs to know what a Member is — keeping the core
+     * (PRD §6.1: "← core") free of authentication concerns.
+     */
+    @Test
+    void ledgerDoesNotDependOnIdentity() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".ledger..")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".identity..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
     @Test
     void layeredArchitectureIsRespected() {
-        // Documents the intended shape (PRD §6.1). Loosely specified for now
-        // since only package-info placeholders exist; tightened as each
-        // module gains real classes in later phases.
+        // Documents the intended shape (PRD §6.1). Tightened as each module
+        // gains real classes; reporting is still a placeholder package.
         ArchRule rule = layeredArchitecture()
                 .consideringOnlyDependenciesInLayers()
                 .layer("Web").definedBy(BASE + ".web..")
                 .layer("Ledger API").definedBy(BASE + ".ledger.api..")
                 .layer("Ledger Internal").definedBy(BASE + ".ledger.internal..")
-                .whereLayer("Ledger Internal").mayOnlyBeAccessedByLayers("Ledger API");
+                .layer("Identity API").definedBy(BASE + ".identity.api..")
+                .layer("Identity Internal").definedBy(BASE + ".identity.internal..")
+                .whereLayer("Ledger Internal").mayOnlyBeAccessedByLayers("Ledger API")
+                .whereLayer("Identity Internal").mayOnlyBeAccessedByLayers("Identity API");
 
         rule.check(new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
