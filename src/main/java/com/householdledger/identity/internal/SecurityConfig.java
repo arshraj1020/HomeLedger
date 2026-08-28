@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -24,6 +25,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  */
 @Configuration
 @EnableWebSecurity
+// Phase 3 addition: enables @PreAuthorize so account-management endpoints can
+// be restricted to ADMIN per PRD §FR-1 ("ADMIN ... can manage accounts and
+// members"), keeping the rule next to the endpoint it guards rather than in a
+// path-matching list here that would drift as the API grows.
+@EnableMethodSecurity
 @EnableConfigurationProperties(JwtProperties.class)
 class SecurityConfig {
 

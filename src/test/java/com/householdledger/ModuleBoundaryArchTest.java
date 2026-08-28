@@ -69,6 +69,47 @@ class ModuleBoundaryArchTest {
                 .importPackages(BASE));
     }
 
+    /**
+     * Phase 3 introduces the project's first cross-module dependency:
+     * {@code identity} calls {@code ledger.api.AccountService} to seed a new
+     * household's chart of accounts (PRD §FR-2). That direction is allowed;
+     * this rule pins the fact that it stays confined to the published API and
+     * the framework-free domain types, never {@code ledger.internal}.
+     *
+     * <p>Combined with {@link #ledgerDoesNotDependOnIdentity()}, the
+     * dependency is strictly one-way, so the module graph stays acyclic.
+     */
+    @Test
+    void identityMayUseLedgerApiButNotLedgerInternals() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".identity..")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".ledger.internal..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * PRD §7: "no controller reaching a repository directly". Phase 3 adds
+     * the first controller that could plausibly be tempted to — account
+     * listing is a thin read — so the rule earns its place now.
+     */
+    @Test
+    void controllersDoNotReachRepositoriesDirectly() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".web..")
+                .should().dependOnClassesThat()
+                .haveSimpleNameEndingWith("Repository");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
     @Test
     void layeredArchitectureIsRespected() {
         // Documents the intended shape (PRD §6.1). Tightened as each module

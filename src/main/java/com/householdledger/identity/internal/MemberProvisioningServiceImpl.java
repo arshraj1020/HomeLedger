@@ -5,6 +5,7 @@ import com.householdledger.identity.api.MemberProvisioningService;
 import com.householdledger.identity.domain.Household;
 import com.householdledger.identity.domain.Member;
 import com.householdledger.identity.domain.Role;
+import com.householdledger.ledger.api.AccountService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,19 +23,39 @@ class MemberProvisioningServiceImpl implements MemberProvisioningService {
     private final HouseholdRepository householdRepository;
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AccountService accountService;
 
     MemberProvisioningServiceImpl(HouseholdRepository householdRepository, MemberRepository memberRepository,
-                                   PasswordEncoder passwordEncoder) {
+                                   PasswordEncoder passwordEncoder, AccountService accountService) {
         this.householdRepository = householdRepository;
         this.memberRepository = memberRepository;
         this.passwordEncoder = passwordEncoder;
+        this.accountService = accountService;
     }
 
+    /**
+     * Creates the household and immediately seeds its starting chart of
+     * accounts (PRD §FR-2: "Seeded on household creation").
+     *
+     * <p>This is the one place {@code identity} reaches into {@code ledger},
+     * and it does so through {@code ledger.api} only — never
+     * {@code ledger.internal}. The dependency is deliberately one-way: the
+     * ledger core knows nothing about members or households-as-identity, and
+     * {@code ModuleBoundaryArchTest.ledgerDoesNotDependOnIdentity} keeps it
+     * that way, so the graph stays acyclic.
+     *
+     * <p>Both steps share one {@code @Transactional} boundary, so a household
+     * can never be left persisted without its accounts.
+     */
     @Override
     @Transactional
     public Household createHousehold(String name) {
         HouseholdEntity entity = new HouseholdEntity(UUID.randomUUID(), name, DEFAULT_CURRENCY);
-        return householdRepository.save(entity).toDomain();
+        Household household = householdRepository.save(entity).toDomain();
+
+        accountService.seedDefaultAccounts(household.id());
+
+        return household;
     }
 
     @Override

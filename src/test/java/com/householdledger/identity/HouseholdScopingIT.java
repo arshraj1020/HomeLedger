@@ -100,11 +100,15 @@ class HouseholdScopingIT {
         provisioningService.registerMember(
                 householdB.id(), "Member B", "b+" + UUID.randomUUID() + "@example.com", PASSWORD, Role.ADMIN);
 
-        // Accounts are Phase 3; seed directly, as the Phase 1 ITs do.
-        cashA = insertAccount(householdA.id(), "ASSET", "Cash");
-        groceriesA = insertAccount(householdA.id(), "EXPENSE", "Groceries");
-        cashB = insertAccount(householdB.id(), "ASSET", "Cash");
-        groceriesB = insertAccount(householdB.id(), "EXPENSE", "Groceries");
+        // Names deliberately distinct from the Phase 3 seeded chart of
+        // accounts (PRD §FR-2 now creates "Cash"/"Groceries" automatically on
+        // household creation, and UNIQUE (household_id, name) would reject a
+        // second one). Every assertion below is unchanged — these are just
+        // fixture accounts whose names cannot collide with the seed list.
+        cashA = insertAccount(householdA.id(), "ASSET", "Test Cash");
+        groceriesA = insertAccount(householdA.id(), "EXPENSE", "Test Groceries");
+        cashB = insertAccount(householdB.id(), "ASSET", "Test Cash");
+        groceriesB = insertAccount(householdB.id(), "EXPENSE", "Test Groceries");
     }
 
     // ---------- the token is the only source of household identity ----------
