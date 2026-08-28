@@ -1,0 +1,530 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.4</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.householdledger</groupId>
+    <artifactId>household-ledger</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>household-ledger</name>
+    <description>Double-entry accounting system for shared household finances</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <!-- Belt-and-braces alongside spring-boot-starter-parent's own
+             ${java.version} -> maven.compiler.release mapping: declared
+             explicitly here so bytecode target is 21 (class file major 65)
+             regardless of which JDK invokes Maven. This is what actually
+             fixes "Unsupported class file major version 69" for ArchUnit —
+             that error means some class file on the classpath was compiled
+             at Java 25's bytecode level (major 69) because the JDK running
+             the build defaulted to its own version somewhere upstream of
+             this fix. See maven-compiler-plugin and maven-toolchains-plugin
+             configuration below for the rest of the fix. -->
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <archunit.version>1.3.0</archunit.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <jqwik.version>1.9.1</jqwik.version>
+        <springdoc.version>2.6.0</springdoc.version>
+        <!--
+            Testcontainers version, overriding the older one managed by
+            spring-boot-starter-parent 3.3.4.
+
+            Why this specific bump: Testcontainers 1.20.2 pulls docker-java
+            3.4.x, which negotiates a Docker Remote API version that Docker
+            Engine 29.x no longer serves. Engine 29 removed support for the
+            legacy API versions docker-java 3.4.x falls back to, so the very
+            first call docker-java makes (GET /_ping then GET /version, then
+            /info) comes back HTTP 400 with an empty body — which is exactly
+            the reported symptom: BadRequestException (400) and a Info/Version
+            response deserialized into empty strings and zeros (ServerVersion="",
+            OperatingSystem="", NCPU=0). The Unix socket itself is fine, which
+            is why a raw `curl` against the socket's /_ping returns OK while
+            the Java client fails: curl sends no version prefix, docker-java
+            sends /v{old}/... and Engine 29 rejects that path.
+
+            The fix is therefore a docker-java upgrade, obtained the supported
+            way — by moving the Testcontainers BOM forward, not by pinning
+            docker-java artifacts directly (which would risk an untested
+            combination against Testcontainers' internals).
+        -->
+        <testcontainers.version>1.21.3</testcontainers.version>
+    </properties>
+
+    <dependencies>
+        <!-- Core -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Database / migrations -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- JWT -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- API docs -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>${jqwik.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!--
+                Explicit, non-negotiable bytecode target. Do not remove in
+                favor of relying only on the ${maven.compiler.release}
+                property above — this makes the intent undeniable to anyone
+                reading the POM, and is cheap insurance against a future
+                parent POM upgrade silently changing how java.version maps
+                to the compiler.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>21</release>
+                </configuration>
+            </plugin>
+
+            <!--
+                Fails the build immediately, with a clear message, if Maven
+                itself is running on anything other than a JDK 21.x — rather
+                than letting a JDK 23/25 build limp along and fail later with
+                an opaque "Unsupported class file major version" error deep
+                inside a test dependency (which is exactly what happened
+                before this was added). This is the "another developer/CI
+                accidentally uses the wrong JDK" guard rail.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-java-21</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                    <message>
+                                        household-ledger targets Java 21 (PRD §6.2) and must be
+                                        built with a JDK 21.x — found a different major version.
+                                        Run `/usr/libexec/java_home -V` to list installed JDKs,
+                                        then `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`
+                                        before invoking Maven (or configure a Maven toolchain —
+                                        see toolchains.xml.example in the project root).
+                                    </message>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.6,)</version>
+                                </requireMavenVersion>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+                Toolchain binding: even if a developer's ambient JAVA_HOME
+                points at a different JDK, `mvn` invoked with a matching
+                ~/.m2/toolchains.xml entry will compile and run tests on a
+                real JDK 21 — the enforcer rule above is the fast/loud
+                guard for the common case of no toolchain configured at all;
+                this is the mechanism that lets a correctly-configured
+                environment succeed even with a newer default JDK on PATH.
+                See toolchains.xml.example in the project root for the file
+                each developer copies to ~/.m2/toolchains.xml.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-toolchains-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>toolchain</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <toolchains>
+                        <jdk>
+                            <version>21</version>
+                        </jdk>
+                    </toolchains>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Forked test JVM uses the JDK 21 toolchain bound above,
+                         independent of whichever JDK is running Maven itself. -->
+                    <jdkToolchain>
+                        <version>21</version>
+                    </jdkToolchain>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                        <include>**/*Properties.java</include>
+                    </includes>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                        <exclude>**/*IntegrationTest.java</exclude>
+                        <exclude>**/*ArchTest.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <jdkToolchain>
+                        <version>21</version>
+                    </jdkToolchain>
+                    <!--
+                        Docker Remote API version pin for the integration-test JVM.
+
+                        Why this exists: docker-java 3.4.2 (shaded inside
+                        Testcontainers 1.21.3) defaults to an API version below
+                        1.36. Docker Engine 29 removed those legacy versions, and
+                        rejects them with HTTP 400 whose body is an empty Info
+                        object carrying only a com.docker.desktop.address label —
+                        an error shape that looks nothing like a version error,
+                        which is what made this hard to diagnose. Measured on the
+                        real daemon socket: /v1.41/info -> 200, /v1.35/info -> 400.
+
+                        1.41 rather than a newer value on purpose: it is the
+                        oldest version this daemon still accepts, so it also
+                        remains valid on the older engines a teammate or CI image
+                        might be running (Docker 20.10+), while being far above
+                        anything Testcontainers needs for pulling an image,
+                        creating/starting a container, mapping ports, streaming
+                        logs, and running Ryuk cleanup.
+
+                        Set here rather than via an exported shell variable so it
+                        applies automatically for every developer and in CI, with
+                        no dependence on shell state (and no change to any test).
+                    -->
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.41</DOCKER_API_VERSION>
+                    </environmentVariables>
+                    <!--
+                        Belt-and-braces: docker-java's DefaultDockerClientConfig
+                        reads the api.version *property* as well as the
+                        DOCKER_API_VERSION environment variable. Setting both
+                        covers the case where the shaded configuration path
+                        consults one but not the other — which is the open
+                        question left by an earlier experiment where exporting
+                        DOCKER_API_VERSION alone had no effect.
+                    -->
+                    <systemPropertyVariables>
+                        <api.version>1.41</api.version>
+                    </systemPropertyVariables>
+                    <includes>
+                        <include>**/*IT.java</include>
+                        <include>**/*IntegrationTest.java</include>
+                        <include>**/*ArchTest.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+
+            <!--
+                JaCoCo coverage (PRD §5: "Test coverage | Domain and service
+                layers above 80% line coverage").
+
+                PHASE BINDING IS THE IMPORTANT PART. The report goals are bound
+                to `post-integration-test`, NOT `verify`. Within a single phase,
+                Maven runs plugin executions in POM declaration order, and this
+                plugin is declared after maven-failsafe-plugin — so binding the
+                reports to `verify` put them *behind* failsafe:verify. Any
+                integration-test failure fails the build at failsafe:verify and
+                the report goals never run, deleting coverage visibility exactly
+                when it is most wanted (a red build). `post-integration-test`
+                runs strictly before `verify`, so reports are written whether
+                the build ends green or red.
+
+                Three reports are produced, because "coverage" is genuinely
+                three different numbers here and conflating them is misleading:
+                  - target/site/jacoco/          unit tests only  (jacoco.exec)
+                  - target/site/jacoco-it/       integration only (jacoco-it.exec)
+                  - target/site/jacoco-merged/   both combined    (merged exec)
+                The merged number is the one to judge against the PRD's 80%,
+                since domain code exercised only by an integration test is still
+                covered code.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <configuration>
+                    <!-- CSV and XML alongside the default HTML: CSV makes the
+                         percentage scriptable in CI without parsing HTML. -->
+                    <formats>
+                        <format>HTML</format>
+                        <format>XML</format>
+                        <format>CSV</format>
+                    </formats>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-prepare-agent-integration</id>
+                        <goals>
+                            <goal>prepare-agent-integration</goal>
+                        </goals>
+                    </execution>
+
+                    <!-- Combine unit + integration execution data. Must precede
+                         the merged report execution below; same phase, and
+                         executions run in declaration order. -->
+                    <execution>
+                        <id>jacoco-merge</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>merge</goal>
+                        </goals>
+                        <configuration>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>${project.build.directory}</directory>
+                                    <includes>
+                                        <include>jacoco.exec</include>
+                                        <include>jacoco-it.exec</include>
+                                    </includes>
+                                </fileSet>
+                            </fileSets>
+                            <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report-integration</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>report-integration</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report-merged</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+                            <outputDirectory>${project.reporting.outputDirectory}/jacoco-merged</outputDirectory>
+                        </configuration>
+                    </execution>
+
+                    <!--
+                        The PRD §5 threshold, enforced rather than merely
+                        reported: >80% LINE coverage across the domain and
+                        service layers specifically (not the whole codebase —
+                        the PRD scopes the target to those two layers, and
+                        padding the number with trivially-covered config or
+                        DTO classes would defeat the point).
+
+                        Bound to `verify` deliberately: this one SHOULD gate the
+                        build, and by the time verify runs the merged data above
+                        already exists.
+                    -->
+                    <execution>
+                        <id>jacoco-check-prd-threshold</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+                            <haltOnFailure>true</haltOnFailure>
+                            <!--
+                                SCOPING IS DONE HERE, NOT IN THE RULE.
+
+                                An earlier version of this file scoped with
+                                <element>BUNDLE</element> plus <includes> of
+                                package patterns. That is silently wrong: with
+                                element=BUNDLE, JaCoCo matches <includes>
+                                against BUNDLE NAMES, and this project has one
+                                bundle called "household-ledger". The package
+                                patterns matched nothing, the rule was applied
+                                to zero elements, and the check reported "all
+                                coverage checks have been met" without checking
+                                anything — passing at 79.8% scoped line
+                                coverage, below the PRD's threshold.
+
+                                The plugin-level <includes> below is a
+                                different, unambiguous parameter: it takes
+                                CLASS FILE PATH patterns and restricts which
+                                classes are analysed at all. The bundle
+                                therefore contains only the domain and service
+                                classes, and the BUNDLE rule then measures
+                                exactly the scope PRD §5 specifies ("Domain and
+                                service layers above 80% line coverage") — no
+                                config, DTO or web class padding the number.
+
+                                Self-check against silent vacuity: because this
+                                scope currently sits at 79.8%, a correctly wired
+                                rule MUST fail the build until real tests raise
+                                it. If this check ever passes without the
+                                coverage having moved, it is broken again.
+                            -->
+                            <includes>
+                                <include>com/householdledger/ledger/domain/**/*.class</include>
+                                <include>com/householdledger/ledger/internal/**/*.class</include>
+                            </includes>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

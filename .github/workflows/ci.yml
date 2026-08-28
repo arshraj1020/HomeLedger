@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Compile
+        run: mvn -B -DskipTests compile
+
+  unit:
+    name: Unit tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # Runs domain/service-layer unit tests and jqwik property tests
+      # (Surefire scope — see pom.xml). Does not touch Postgres.
+      - name: Unit + property tests
+        run: mvn -B test
+
+  integration:
+    name: Integration tests (Testcontainers)
+    needs: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # Testcontainers pulls its own Postgres image; the runner's Docker
+      # daemon is used directly, no docker-compose needed here.
+      - name: Integration tests
+        run: mvn -B verify -DskipUnitTests=false
+
+  archunit:
+    name: Module boundary check (ArchUnit)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # ArchUnit tests are wired into the Failsafe (integration) phase — see
+      # pom.xml surefire/failsafe include/exclude split — so this job is
+      # currently a duplicate-safety run scoped to *ArchTest.java specifically.
+      # Kept as its own CI job (rather than folded into `integration`) so a
+      # module-boundary violation is reported distinctly from a data-layer
+      # integration failure.
+      - name: ArchUnit
+        run: mvn -B verify -Dtest=*ArchTest -DfailIfNoTests=false

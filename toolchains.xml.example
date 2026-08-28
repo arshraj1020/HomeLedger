@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Per-developer Maven toolchain, pinning this project's build to a real
+  JDK 21 regardless of whatever JDK is on PATH / JAVA_HOME by default.
+
+  Setup (one-time, per machine):
+
+    1. Find your installed JDK 21 (installs one via Homebrew if missing —
+       see README.md "Local setup" for the full sequence):
+         /usr/libexec/java_home -V
+
+    2. Copy this file to ~/.m2/toolchains.xml, replacing <jdkHome> below
+       with the path `/usr/libexec/java_home -v 21` printed, e.g.:
+         cp toolchains.xml.example ~/.m2/toolchains.xml
+         # then edit the <jdkHome> path, or generate it directly:
+         JDK21_HOME=$(/usr/libexec/java_home -v 21)
+         sed "s#REPLACE_WITH_JDK21_HOME#$JDK21_HOME#" toolchains.xml.example > ~/.m2/toolchains.xml
+
+  With this in place, `mvn clean verify` compiles and runs tests on JDK 21
+  even if `java -version` / `mvn -version` report a different default JDK —
+  though per the project's maven-enforcer-plugin rule (see pom.xml), Maven
+  itself must ALSO be invoked with a JDK 21.x JAVA_HOME; the two mechanisms
+  are complementary, not alternatives (see README.md).
+-->
+<toolchains>
+    <toolchain>
+        <type>jdk</type>
+        <provides>
+            <version>21</version>
+        </provides>
+        <configuration>
+            <jdkHome>REPLACE_WITH_JDK21_HOME</jdkHome>
+        </configuration>
+    </toolchain>
+</toolchains>

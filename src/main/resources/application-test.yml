@@ -1,0 +1,13 @@
+# Overridden per-test by Testcontainers @DynamicPropertySource where needed.
+# Kept minimal deliberately: the invariant cannot be verified against H2, so
+# integration tests always point at a real Postgres container, never this file's datasource.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+security:
+  jwt:
+    secret: test-only-secret-not-for-any-real-environment-minimum-256-bits-long

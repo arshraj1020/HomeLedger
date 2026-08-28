@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: household_ledger
+      POSTGRES_USER: household_ledger
+      POSTGRES_PASSWORD: household_ledger
+    ports:
+      - "5432:5432"
+    volumes:
+      - household_ledger_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U household_ledger -d household_ledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: household_ledger
+      DB_USER: household_ledger
+      DB_PASSWORD: household_ledger
+      JWT_SECRET: dev-only-secret-change-in-any-real-deployment-minimum-256-bits
+    ports:
+      - "8080:8080"
+
+volumes:
+  household_ledger_pgdata:

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Test logging configuration.
+
+  The DEBUG/TRACE loggers that were here during the Docker Engine 29 / API
+  version investigation have been removed now that the cause is fixed and
+  pinned in pom.xml (maven-failsafe-plugin sets DOCKER_API_VERSION=1.41).
+  Should Testcontainers ever need diagnosing again, temporarily add:
+
+      <logger name="org.testcontainers.dockerclient" level="DEBUG"/>
+      <logger name="com.github.dockerjava" level="DEBUG"/>
+
+  What remains is purely noise suppression: Spring Boot, Hibernate and
+  HikariCP are chatty during integration tests and drown out the test
+  results, which are the thing worth reading in build output.
+-->
+<configuration>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.testcontainers" level="INFO"/>
+    <logger name="com.github.dockerjava" level="WARN"/>
+    <logger name="tc" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>

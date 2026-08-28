@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: household-ledger
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:household_ledger}
+    username: ${DB_USER:household_ledger}
+    password: ${DB_PASSWORD:household_ledger}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  thymeleaf:
+    cache: false
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-every-real-environment-this-is-a-dev-only-default-value}
+    access-token-ttl-minutes: 15
+    refresh-token-ttl-days: 7
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+server:
+  port: ${PORT:8080}
+
+logging:
+  level:
+    com.householdledger: INFO
