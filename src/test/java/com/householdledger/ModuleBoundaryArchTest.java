@@ -9,9 +9,10 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 /**
  * Module boundary enforcement (PRD §6.1): no module may reach into another
- * module's {@code internal} package. {@code ledger.internal} and — as of
- * Phase 2 — {@code identity.internal} are both guarded; the reporting
- * module gains its rule when it acquires internals in Phase 6.
+ * module's {@code internal} package. All three feature modules are guarded:
+ * {@code ledger.internal} (Phase 1), {@code identity.internal} (Phase 2) and
+ * {@code reporting.internal} (Phase 6). The rules also pin the direction of
+ * every cross-module dependency, so the graph stays acyclic.
  */
 class ModuleBoundaryArchTest {
 
@@ -160,10 +161,89 @@ class ModuleBoundaryArchTest {
                 .noClasses()
                 .that().resideInAnyPackage(
                         BASE + ".ledger.domain..", BASE + ".ledger.api..",
-                        BASE + ".identity.domain..", BASE + ".identity.api..")
+                        BASE + ".identity.domain..", BASE + ".identity.api..",
+                        BASE + ".reporting.domain..", BASE + ".reporting.api..")
                 .should().dependOnClassesThat()
                 .resideInAnyPackage("org.springframework..", "jakarta.persistence..",
                         "jakarta.validation..", "org.hibernate..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * Phase 6 gives the reporting module internals for the first time (PRD
+     * §6.1 lists {@code reporting/} as its own module). Nothing outside it
+     * may reach them — the web layer talks to
+     * {@code reporting.api.ReportingService} and nothing else.
+     */
+    @Test
+    void reportingInternalIsNotReachedFromOutsideReporting() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideOutsideOfPackage(BASE + ".reporting..")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".reporting.internal..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * Reporting reads the ledger through its published API, never its
+     * internals.
+     *
+     * <p>This is the rule that shaped Phase 6's design. Reporting needs
+     * aggregate sums over postings, and the shortcut would have been to give
+     * the reporting module its own JPA mappings for the same tables — two
+     * definitions of one schema, free to drift apart. Instead the ledger
+     * publishes the aggregates ({@code LedgerReportQueries}) and reporting
+     * composes them, so all SQL stays in one module.
+     */
+    @Test
+    void reportingUsesLedgerApiButNotLedgerInternals() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".reporting..")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".ledger.internal..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * Reporting never touches identity. Household scoping arrives as a plain
+     * {@code UUID} from the caller, exactly as it does for the ledger, so the
+     * reporting module has no notion of who a member is.
+     */
+    @Test
+    void reportingDoesNotDependOnIdentity() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".reporting..")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".identity..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * The ledger core stays unaware of reporting, keeping the dependency
+     * one-way and the graph acyclic.
+     */
+    @Test
+    void ledgerDoesNotDependOnReporting() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".ledger..")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".reporting..");
 
         rule.check(new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
@@ -181,8 +261,11 @@ class ModuleBoundaryArchTest {
                 .layer("Ledger Internal").definedBy(BASE + ".ledger.internal..")
                 .layer("Identity API").definedBy(BASE + ".identity.api..")
                 .layer("Identity Internal").definedBy(BASE + ".identity.internal..")
+                .layer("Reporting API").definedBy(BASE + ".reporting.api..")
+                .layer("Reporting Internal").definedBy(BASE + ".reporting.internal..")
                 .whereLayer("Ledger Internal").mayOnlyBeAccessedByLayers("Ledger API")
-                .whereLayer("Identity Internal").mayOnlyBeAccessedByLayers("Identity API");
+                .whereLayer("Identity Internal").mayOnlyBeAccessedByLayers("Identity API")
+                .whereLayer("Reporting Internal").mayOnlyBeAccessedByLayers("Reporting API");
 
         rule.check(new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

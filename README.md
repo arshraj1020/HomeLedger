@@ -2,7 +2,7 @@
 
 A double-entry accounting system for shared household finances, exposed as a REST API with a minimal web interface.
 
-> Status: Phases 0–5 complete (scaffold, ledger core, identity, account management, transaction API, querying). See `household-ledger-prd.md` for the full product requirements document and build sequence.
+> Status: Phases 0–6 complete (scaffold, ledger core, identity, account management, transaction API, querying, reporting). See `household-ledger-prd.md` for the full product requirements document and build sequence.
 
 ## Why double-entry
 
@@ -98,6 +98,10 @@ POST   /api/transactions                   # any member - mode: SIMPLE | SPLIT |
 GET    /api/transactions                   # any member - filtered, paginated, newest first
 GET    /api/transactions/{id}              # any member - full posting detail
 POST   /api/transactions/{id}/reverse      # any member - creates the exact inverse
+
+GET    /api/reports/balance-sheet?asOf=    # any member - accounts by type with balances
+GET    /api/reports/expenses?from=&to=     # any member - totals per expense category
+GET    /api/reports/trial-balance          # any member - sum of all postings, must be zero
 ```
 
 Account management is ADMIN-only; recording transactions is not. A household where only the admin could enter an expense would defeat the point.
@@ -150,6 +154,22 @@ Sort order is fixed at date descending and is not a client parameter — a clien
 
 A filter naming an account or member from another household returns an empty page, not an error — the household predicate sits beneath every filter, so there is nothing to leak and nothing to report as missing.
 
+### Reports
+
+**Balance sheet** — every account grouped by type, including deactivated accounts and accounts that have never been posted to (at zero). `asOf` bounds it to postings on or before that date, inclusive; omit it for the current position.
+
+**Expense summary** — totals per expense category over an inclusive date range. Both `from` and `to` are required. Only categories with activity in the range appear; an empty result is a successful "nothing was spent", not a 404.
+
+**Trial balance** — the sum of every posting in the household, which must be zero. The response also carries `postingCount`, because an empty ledger sums to zero too and only one of those is evidence of anything, plus any offending transaction ids. It returns 200 even when unbalanced: that is a successfully computed report of a broken ledger, and a client checking integrity needs to read the body rather than catch an error.
+
+A daily scheduled job runs the same check across every household and logs an ERROR naming the affected transaction ids. The deferred trigger already makes an unbalanced commit impossible, but a trigger only protects writes that go through the normal path — not a restore from a mangled dump, a bulk load run with triggers off, or a future migration that drops it. The check is what would notice.
+
+#### Sign conventions
+
+Postings are stored as plain signed minor units, debits positive, and **nothing below the reporting layer applies an account-type convention** — that is the mitigation the PRD names for its sign-confusion risk. Reporting is the one place the flip happens: debit-normal accounts (asset, expense) read as stored, while credit-normal accounts (liability, income, equity) are negated, so a ₹4,200 card balance stored as `-420000` reads as `420000` to the person who owes it.
+
+Every balance-sheet line therefore carries both figures — `balanceMinor` (what to display) and `signedBalanceMinor` (what is stored) — along with `signFlipped` so a client can label the column. The signed figures across all five sections sum to zero, which makes the balance sheet self-checking against the trial balance without a second call. The presented figures do not sum to zero, and are not meant to.
+
 ### Errors
 
 RFC 7807 Problem Details throughout. `422` unbalanced or future-dated or deactivated account, `409` already reversed or reversing a reversal or duplicate account name, `404` not in your household, `403` not an ADMIN, `401` unauthenticated.
@@ -183,7 +203,7 @@ household-ledger/
 - **Domain unit tests** — plain JUnit, no Spring context, no database.
 - **Property-based tests (jqwik)** — random posting sets; balanced sets accepted, unbalanced sets rejected, across 1000+ generated cases each. Phase 4 adds the complementary property for the entry modes: however a user describes a movement of money, the postings produced always sum to zero — so a well-formed request can never reach, let alone trip, the database trigger.
 - **Integration tests (Testcontainers, real Postgres)** — the invariant, immutability, and cross-household isolation are tested against a real Postgres container. The invariant cannot be verified against H2, so this project never uses an in-memory database for anything invariant-related.
-- **Architecture tests (ArchUnit)** — module boundary enforcement.
+- **Architecture tests (ArchUnit)** — module boundary enforcement: no module reaches another's `internal` package, every cross-module dependency is one-way (so the graph stays acyclic), `shared` depends on nothing, and every `domain`/`api` package is free of Spring, JPA and Jakarta types.
 
 ## Build sequence
 

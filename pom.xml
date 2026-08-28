@@ -519,6 +519,17 @@
                                 -->
                                 <include>com/householdledger/identity/domain/**/*.class</include>
                                 <include>com/householdledger/identity/internal/**/*.class</include>
+                                <!--
+                                    Phase 6 brings the reporting module under
+                                    the same gate. PRD §5 scopes the target to
+                                    "domain and service layers"; reporting has
+                                    both now, and leaving it out would let the
+                                    sign conventions and aggregation logic land
+                                    unmeasured. This widens the scope — it never
+                                    narrows it.
+                                -->
+                                <include>com/householdledger/reporting/domain/**/*.class</include>
+                                <include>com/householdledger/reporting/internal/**/*.class</include>
                             </includes>
                             <rules>
                                 <rule>
