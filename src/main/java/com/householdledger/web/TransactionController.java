@@ -2,23 +2,30 @@ package com.householdledger.web;
 
 import com.householdledger.identity.api.AuthenticatedMember;
 import com.householdledger.ledger.api.LedgerService;
+import com.householdledger.ledger.api.PageResult;
 import com.householdledger.ledger.api.PostingLine;
 import com.householdledger.ledger.api.SplitLine;
 import com.householdledger.ledger.api.TransactionDetail;
+import com.householdledger.ledger.domain.PageSpec;
 import com.householdledger.ledger.domain.Transaction;
+import com.householdledger.ledger.domain.TransactionFilter;
 import com.householdledger.web.dto.CreateTransactionRequest;
+import com.householdledger.web.dto.PageResponse;
 import com.householdledger.web.dto.TransactionResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
@@ -36,8 +43,8 @@ import java.util.UUID;
  * household, so a forged id resolves to nothing and yields 404 rather than
  * 403 (PRD §9 — no existence leak).
  *
- * <p>Listing and filtering transactions ({@code GET /api/transactions}) is
- * Phase 5 and deliberately absent here.
+ * <p>Phase 5 added {@code GET /api/transactions} — filtered, paginated,
+ * newest first (PRD §FR-5).
  */
 @RestController
 @RequestMapping("/api/transactions")
@@ -98,6 +105,60 @@ class TransactionController {
         // transaction, however the client obtained it.
         TransactionDetail detail = ledgerService.getTransaction(householdId, recorded.id());
         return ResponseEntity.status(HttpStatus.CREATED).body(TransactionResponse.from(detail));
+    }
+
+    /**
+     * Lists transactions, filtered and paginated (PRD §FR-5, §6.4).
+     *
+     * <p>Every filter is optional and they compose. The sort is fixed at date
+     * descending by FR-5 and is not a client parameter — allowing one would
+     * let a caller request an unindexed ordering, and there is no product
+     * reason to.
+     *
+     * <p>A filter naming an account or member from another household matches
+     * nothing and returns an empty page rather than an error: the household
+     * predicate is applied unconditionally beneath it, so there is nothing to
+     * leak, and a search that finds nothing is not a failed request.
+     */
+    @GetMapping
+    @Operation(summary = "List transactions, filtered and paginated, newest first")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page of transactions"),
+            @ApiResponse(responseCode = "400", description = "Reversed date range", content = @Content),
+            @ApiResponse(responseCode = "401", description = "Not authenticated", content = @Content)
+    })
+    PageResponse<TransactionResponse> list(
+            @AuthenticationPrincipal AuthenticatedMember member,
+
+            @Parameter(description = "Earliest transaction date, inclusive")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+
+            @Parameter(description = "Latest transaction date, inclusive")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+
+            @Parameter(description = "Only transactions with a posting against this account")
+            @RequestParam(required = false) UUID accountId,
+
+            @Parameter(description = "Only transactions recorded by this member")
+            @RequestParam(required = false) UUID memberId,
+
+            @Parameter(description = "Case-insensitive substring match on the description")
+            @RequestParam(required = false) String q,
+
+            @Parameter(description = "Zero-based page index; negative values are clamped to 0")
+            @RequestParam(required = false) Integer page,
+
+            @Parameter(description = "Rows per page; clamped to 1..200")
+            @RequestParam(required = false) Integer size) {
+
+        // A reversed range throws IllegalArgumentException from the domain
+        // record and surfaces as 400 via LedgerExceptionHandler.
+        TransactionFilter filter = new TransactionFilter(from, to, accountId, memberId, q);
+
+        PageResult<TransactionDetail> result = ledgerService.findTransactions(
+                member.householdId(), filter, PageSpec.of(page, size));
+
+        return PageResponse.from(result, TransactionResponse::from);
     }
 
     @GetMapping("/{id}")

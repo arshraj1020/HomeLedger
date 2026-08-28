@@ -135,6 +135,41 @@ class ModuleBoundaryArchTest {
                 .importPackages(BASE));
     }
 
+    /**
+     * Every {@code domain} and {@code api} package stays free of Spring,
+     * JPA and Jakarta types.
+     *
+     * <p>Phase 5 is where this stopped being incidental and became a real
+     * choice: paging and filtering arrive from Spring Data, and the obvious
+     * shortcut would have been to return Spring's {@code Page} and accept its
+     * {@code Pageable} straight through {@code LedgerService}. That would put
+     * the persistence framework into the module's published contract, so the
+     * web layer, the Phase 7 UI and any future consumer would compile against
+     * Spring Data purely because of how the ledger stores things today.
+     * {@code PageResult}, {@code PageSpec} and {@code TransactionFilter} exist
+     * to keep that boundary, and this rule is what stops the shortcut being
+     * taken later by accident.
+     *
+     * <p>It also keeps the domain unit-testable with no context and no
+     * database — which is why the Phase 1 and Phase 4 property tests run in
+     * milliseconds.
+     */
+    @Test
+    void domainAndApiPackagesAreFrameworkFree() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAnyPackage(
+                        BASE + ".ledger.domain..", BASE + ".ledger.api..",
+                        BASE + ".identity.domain..", BASE + ".identity.api..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("org.springframework..", "jakarta.persistence..",
+                        "jakarta.validation..", "org.hibernate..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
     @Test
     void layeredArchitectureIsRespected() {
         // Documents the intended shape (PRD §6.1). Tightened as each module

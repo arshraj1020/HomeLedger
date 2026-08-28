@@ -2,7 +2,7 @@
 
 A double-entry accounting system for shared household finances, exposed as a REST API with a minimal web interface.
 
-> Status: Phases 0–4 complete (scaffold, ledger core, identity, account management, transaction API). See `household-ledger-prd.md` for the full product requirements document and build sequence.
+> Status: Phases 0–5 complete (scaffold, ledger core, identity, account management, transaction API, querying). See `household-ledger-prd.md` for the full product requirements document and build sequence.
 
 ## Why double-entry
 
@@ -95,6 +95,7 @@ PATCH  /api/accounts/{id}                  # ADMIN only - rename and/or activate
 GET    /api/accounts/{id}/balance?asOf=    # any member; derived, never stored
 
 POST   /api/transactions                   # any member - mode: SIMPLE | SPLIT | RAW
+GET    /api/transactions                   # any member - filtered, paginated, newest first
 GET    /api/transactions/{id}              # any member - full posting detail
 POST   /api/transactions/{id}/reverse      # any member - creates the exact inverse
 ```
@@ -132,6 +133,22 @@ POST /api/transactions
 **RAW** — an arbitrary, already-signed posting list, for completeness and tests. This is the only mode that can produce an unbalanced request, and it is rejected with 422.
 
 Validation applies identically across all three: at least two postings, postings sum to zero, every account active and in the caller's household, amounts strictly positive (SIMPLE/SPLIT), and the date no more than one day in the future — enough slack for a timezone ahead of the server, not enough for a typo'd year to distort every as-of balance.
+
+### Listing transactions
+
+```
+GET /api/transactions?from=2026-08-01&to=2026-08-31&accountId=…&memberId=…&q=grocer&page=0&size=25
+```
+
+All parameters are optional and compose. `from`/`to` are inclusive; `accountId` matches a posting on either leg of the transaction; `q` is a case-insensitive substring match on the description, with `%` and `_` treated as literal text. Filters are built as dynamically composed Spring Data JPA **Specifications**, one named predicate per criterion.
+
+The response is a page envelope: `content`, `page`, `size`, `totalElements`, `totalPages`, `hasNext`, `hasPrevious`.
+
+Sort order is fixed at date descending and is not a client parameter — a client-controlled sort would let a caller request an unindexed ordering for no product benefit. Two tiebreakers follow the date: entry time, then id. That is not decoration — several transactions routinely share one date, and a sort with ties is not a total order, so without them a row could appear on two pages or on none.
+
+`page` and `size` are **clamped, not rejected** (`size` to 1..200). An unbounded page size would let one request pull an entire ledger into memory, which is how the latency target gets missed; clamping makes that impossible rather than merely discouraged.
+
+A filter naming an account or member from another household returns an empty page, not an error — the household predicate sits beneath every filter, so there is nothing to leak and nothing to report as missing.
 
 ### Errors
 

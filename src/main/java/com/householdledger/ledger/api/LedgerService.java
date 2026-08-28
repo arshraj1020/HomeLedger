@@ -1,7 +1,9 @@
 package com.householdledger.ledger.api;
 
 import com.householdledger.ledger.domain.Account;
+import com.householdledger.ledger.domain.PageSpec;
 import com.householdledger.ledger.domain.Transaction;
+import com.householdledger.ledger.domain.TransactionFilter;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -80,6 +82,23 @@ public interface LedgerService {
      *         another household's transaction is not leaked (PRD §9)
      */
     TransactionDetail getTransaction(UUID householdId, UUID transactionId);
+
+    /**
+     * Lists transactions matching the filter, one page at a time, sorted by
+     * date descending (PRD §FR-5).
+     *
+     * <p>The household scope is applied unconditionally from
+     * {@code householdId} and is not something the filter can influence, so
+     * a query can never reach another household's rows (PRD §FR-1). An
+     * {@code accountId} or {@code memberId} in the filter that belongs to a
+     * different household simply matches nothing — an empty page rather than
+     * an error, since a filter naming an unknown value is a search that found
+     * nothing, not a failed request.
+     *
+     * @param filter criteria; {@link TransactionFilter#UNFILTERED} for all
+     * @param pageSpec which page and how many rows, already clamped
+     */
+    PageResult<TransactionDetail> findTransactions(UUID householdId, TransactionFilter filter, PageSpec pageSpec);
 
     /**
      * Reverses a transaction: creates and persists the exact sign-inverse

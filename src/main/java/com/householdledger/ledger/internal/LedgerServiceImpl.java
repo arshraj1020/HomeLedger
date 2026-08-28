@@ -2,6 +2,10 @@ package com.householdledger.ledger.internal;
 
 import com.householdledger.ledger.api.*;
 import com.householdledger.ledger.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,7 +16,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Package-private implementation of {@link LedgerService} — not reachable
@@ -122,7 +128,42 @@ class LedgerServiceImpl implements LedgerService {
         TransactionEntity entity = transactionRepository.findByIdAndHouseholdId(transactionId, householdId)
                 .orElseThrow(() -> new TransactionNotFoundException(transactionId));
 
-        return toDetail(entity);
+        return toDetails(List.of(entity)).get(0);
+    }
+
+    /**
+     * Paged, filtered listing (PRD §FR-5).
+     *
+     * <p>The sort is fixed at date descending, as FR-5 requires, but with two
+     * tiebreakers appended. That is not decoration: several transactions
+     * routinely share one date, and a sort with ties is not a total order —
+     * Postgres may return tied rows in a different order per query, so a row
+     * can appear on both page 1 and page 2, or on neither. Adding
+     * {@code createdAt DESC} (most recently entered first, which is what a
+     * user expects within a day) and then {@code id} as a final,
+     * guaranteed-unique tiebreaker makes paging deterministic.
+     */
+    @Override
+    public PageResult<TransactionDetail> findTransactions(UUID householdId, TransactionFilter filter,
+                                                          PageSpec pageSpec) {
+        Objects.requireNonNull(householdId, "householdId");
+        Objects.requireNonNull(filter, "filter");
+        Objects.requireNonNull(pageSpec, "pageSpec");
+
+        Pageable pageable = PageRequest.of(pageSpec.page(), pageSpec.size(),
+                Sort.by(Sort.Order.desc("occurredOn"),
+                        Sort.Order.desc("createdAt"),
+                        Sort.Order.asc("id")));
+
+        Page<TransactionEntity> page = transactionRepository.findAll(
+                TransactionSpecifications.matching(householdId, filter), pageable);
+
+        return new PageResult<>(
+                toDetails(page.getContent()),
+                page.getNumber(),
+                page.getSize(),
+                page.getTotalElements(),
+                page.getTotalPages());
     }
 
     @Override
@@ -195,43 +236,65 @@ class LedgerServiceImpl implements LedgerService {
     }
 
     /**
-     * Builds the API view of a transaction, resolving account names for
-     * presentation (PRD §6.4's response shape).
+     * Builds the API view of a whole batch of transactions, resolving account
+     * names and reversal state for presentation (PRD §6.4's response shape).
      *
-     * <p>Account names are fetched in one query rather than one per posting:
-     * a split across eight categories would otherwise issue nine reads to
-     * render one row, which is exactly the N+1 pattern that would put the
-     * §5 latency target at risk as transaction volume grows.
+     * <p><b>Three queries, regardless of batch size.</b> Done naively —
+     * postings per transaction, account names per posting, a reversal check
+     * per transaction — a page of 25 transactions would issue well over 75
+     * queries. That is the N+1 pattern, and it is precisely what would break
+     * the PRD §5 target ("p95 under 200ms for reads at 10k postings") as a
+     * household's history grows. Phase 5's listing endpoint is what makes
+     * this matter; the single-transaction read reuses the same path with a
+     * batch of one rather than keeping a second, divergent implementation.
      *
-     * <p>{@code reversed} is derived by asking whether a reversal pointing at
-     * this transaction exists, rather than storing a flag — the same reasoning
-     * that keeps balances derived rather than cached (PRD §3.4): a stored
-     * flag is a second source of truth that can drift.
+     * <p>{@code reversed} is derived by asking which reversals point at these
+     * transactions, rather than storing a flag — the same reasoning that
+     * keeps balances derived rather than cached (PRD §3.4): a stored flag is
+     * a second source of truth that can drift.
      */
-    private TransactionDetail toDetail(TransactionEntity entity) {
-        List<PostingEntity> postings = postingRepository.findByTransactionId(entity.getId());
+    private List<TransactionDetail> toDetails(List<TransactionEntity> entities) {
+        if (entities.isEmpty()) {
+            return List.of();
+        }
 
+        List<UUID> transactionIds = entities.stream().map(TransactionEntity::getId).toList();
+
+        // Query 1: every posting for the batch.
+        Map<UUID, List<PostingEntity>> postingsByTransaction = postingRepository
+                .findByTransactionIdIn(transactionIds).stream()
+                .collect(Collectors.groupingBy(PostingEntity::getTransactionId));
+
+        // Query 2: the account names those postings reference.
+        List<UUID> accountIds = postingsByTransaction.values().stream()
+                .flatMap(List::stream)
+                .map(PostingEntity::getAccountId)
+                .distinct()
+                .toList();
         Map<UUID, String> namesByAccountId = new HashMap<>();
-        List<UUID> accountIds = postings.stream().map(PostingEntity::getAccountId).distinct().toList();
         for (AccountEntity account : accountRepository.findAllById(accountIds)) {
             namesByAccountId.put(account.getId(), account.getName());
         }
 
-        List<PostingDetail> postingDetails = postings.stream()
-                .map(posting -> new PostingDetail(
-                        posting.getAccountId(),
-                        namesByAccountId.get(posting.getAccountId()),
-                        posting.getAmountMinor()))
-                .toList();
+        // Query 3: which of these transactions have been reversed.
+        Set<UUID> reversedIds = Set.copyOf(
+                transactionRepository.findReversedTransactionIdsAmong(transactionIds));
 
-        return new TransactionDetail(
-                entity.getId(),
-                entity.getOccurredOn(),
-                entity.getDescription(),
-                entity.getCreatedBy(),
-                postingDetails,
-                transactionRepository.existsByReversesTransactionId(entity.getId()),
-                entity.getReversesTransactionId());
+        return entities.stream()
+                .map(entity -> new TransactionDetail(
+                        entity.getId(),
+                        entity.getOccurredOn(),
+                        entity.getDescription(),
+                        entity.getCreatedBy(),
+                        postingsByTransaction.getOrDefault(entity.getId(), List.of()).stream()
+                                .map(posting -> new PostingDetail(
+                                        posting.getAccountId(),
+                                        namesByAccountId.get(posting.getAccountId()),
+                                        posting.getAmountMinor()))
+                                .toList(),
+                        reversedIds.contains(entity.getId()),
+                        entity.getReversesTransactionId()))
+                .toList();
     }
 
     /**
