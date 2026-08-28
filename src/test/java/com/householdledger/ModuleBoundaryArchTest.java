@@ -110,6 +110,31 @@ class ModuleBoundaryArchTest {
                 .importPackages(BASE));
     }
 
+    /**
+     * Phase 4 moved the {@code Clock} bean into {@code shared}, because the
+     * ledger now needs it too (PRD §FR-3's future-date tolerance) and a bean
+     * two modules depend on has no business behind one module's internal
+     * boundary.
+     *
+     * <p>{@code shared} is depended upon by everything, so it must depend on
+     * nothing: PRD §6.1 scopes it to "common errors, base types, config". A
+     * shared module that reached back into a feature module would make every
+     * other boundary meaningless.
+     */
+    @Test
+    void sharedDependsOnNoFeatureModule() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".shared..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage(BASE + ".ledger..", BASE + ".identity..",
+                        BASE + ".reporting..", BASE + ".web..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
     @Test
     void layeredArchitectureIsRespected() {
         // Documents the intended shape (PRD §6.1). Tightened as each module

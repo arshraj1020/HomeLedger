@@ -39,6 +39,49 @@ public interface LedgerService {
                                    UUID createdBy, List<PostingLine> postings);
 
     /**
+     * Simple mode (PRD §FR-3): one source, one destination, one unsigned
+     * amount — "the default path [which] handles well over 90% of real
+     * entries". Covers expenses, income, transfers and card payments alike;
+     * only the account types differ.
+     *
+     * <p>{@code amountMinor} is a magnitude. The destination is debited and
+     * the source credited, per the worked example in PRD §6.4.
+     *
+     * @throws IllegalArgumentException if the amount is not strictly
+     *         positive, or source and destination are the same account
+     * @throws AccountNotFoundException if either account is outside the
+     *         caller's household
+     * @throws InactiveAccountException if either account is deactivated
+     * @throws com.householdledger.ledger.domain.FutureDatedTransactionException
+     *         if the date is too far ahead
+     */
+    Transaction recordSimpleTransaction(UUID householdId, LocalDate occurredOn, String description,
+                                         UUID createdBy, UUID fromAccountId, UUID toAccountId, long amountMinor);
+
+    /**
+     * Split mode (PRD §FR-3): one source funding several destinations, each
+     * with its own amount — "for a single bill covering several categories".
+     * The source is credited the exact sum, so there is no remainder to
+     * allocate.
+     *
+     * @throws IllegalArgumentException if there are no destinations, any
+     *         amount is not strictly positive, or the source appears among
+     *         the destinations
+     */
+    Transaction recordSplitTransaction(UUID householdId, LocalDate occurredOn, String description,
+                                        UUID createdBy, UUID fromAccountId, List<SplitLine> destinations);
+
+    /**
+     * A single transaction with its full posting detail and resolved account
+     * names (PRD §6.4, §FR-5).
+     *
+     * @throws TransactionNotFoundException if the transaction is not in the
+     *         caller's household — 404 rather than 403, so the existence of
+     *         another household's transaction is not leaked (PRD §9)
+     */
+    TransactionDetail getTransaction(UUID householdId, UUID transactionId);
+
+    /**
      * Reverses a transaction: creates and persists the exact sign-inverse
      * transaction, linked back to the original (PRD §FR-4).
      *

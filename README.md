@@ -2,11 +2,13 @@
 
 A double-entry accounting system for shared household finances, exposed as a REST API with a minimal web interface.
 
-> Status: Phase 0 (scaffold) complete. See `household-ledger-prd.md` for the full product requirements document and build sequence.
+> Status: Phases 0–4 complete (scaffold, ledger core, identity, account management, transaction API). See `household-ledger-prd.md` for the full product requirements document and build sequence.
 
 ## Why double-entry
 
-*(To be filled in — PRD §1.3 / §12.3 — once the ledger core (Phase 1) exists.)*
+Single-entry systems store an amount and a sign, and there is no relationship between records that can be checked — so there is no way to know whether the data is right. Double-entry stores every transaction as a set of postings that must sum to zero, which means every rupee spent has an identifiable source, errors surface at write time instead of accumulating silently, and liabilities like credit cards model naturally rather than being bolted on.
+
+Balances are a consequence of that structure rather than a stored number, so they cannot drift out of sync with the transactions beneath them.
 
 ## The invariant
 
@@ -16,7 +18,15 @@ See `src/main/resources/db/migration/V1__baseline_schema.sql` for the trigger de
 
 ## Deliberate tradeoffs
 
-*(To be filled in as each is implemented — PRD §12.5: derived vs stored balances, monolith vs microservices, Specifications vs Criteria API.)*
+**Derived balances, never stored.** `balance(account)` is `SUM(amount_minor)` over its postings, computed on demand. A stored balance is a cache that can silently diverge from the transactions it summarises; at household scale (thousands of postings, not millions) the aggregate is trivially fast. If it ever became a bottleneck the fix is a materialised rolling balance updated in the same transaction — a deferred decision, not an oversight.
+
+**Money as `long` minor units.** Amounts are paise in a `BIGINT`, wrapped by a `Money` value type that owns all arithmetic and throws on overflow rather than wrapping. Never `float`, never `double`, never `BigDecimal` in a column.
+
+**A transaction has no amount field.** The amount is emergent from the postings. Storing one would create a second source of truth that could disagree with them.
+
+**Append-only.** There is no UPDATE and no DELETE path for postings — at the service layer, or in the database, which rejects both by trigger. Correction is reversal followed by a fresh entry, so the ledger is a complete audit log by construction. Accounts are likewise never deleted, only deactivated.
+
+**Modular monolith, not microservices.** There is no scaling requirement, no independent deployment need, and no team boundary that would justify network calls between components. Module boundaries are enforced by ArchUnit instead: no module may reach another's `internal` package, the ledger core knows nothing about identity, and `shared` depends on nothing.
 
 ## Local setup
 
@@ -70,6 +80,71 @@ mvn verify         # adds integration tests + ArchUnit against a real Postgres c
 
 Coverage report after `mvn verify`: `target/site/jacoco/index.html`.
 
+## API
+
+All endpoints require a bearer token except the auth endpoints themselves. The household is taken from the verified JWT and never from a path or body, so a request cannot name someone else's household. Resources belonging to another household return **404, not 403** — a 403 would confirm they exist.
+
+```
+POST   /api/auth/login                     # email + password -> access + refresh token
+POST   /api/auth/refresh                   # rotates: the presented token is revoked
+POST   /api/auth/logout                    # idempotent
+
+GET    /api/accounts                       # any member
+POST   /api/accounts                       # ADMIN only
+PATCH  /api/accounts/{id}                  # ADMIN only - rename and/or activate/deactivate
+GET    /api/accounts/{id}/balance?asOf=    # any member; derived, never stored
+
+POST   /api/transactions                   # any member - mode: SIMPLE | SPLIT | RAW
+GET    /api/transactions/{id}              # any member - full posting detail
+POST   /api/transactions/{id}/reverse      # any member - creates the exact inverse
+```
+
+Account management is ADMIN-only; recording transactions is not. A household where only the admin could enter an expense would defeat the point.
+
+### Recording a transaction
+
+Three entry modes, all producing balanced transactions. The user never types a sign — the destination is debited and the source credited.
+
+**SIMPLE** — one source, one destination, one amount. Covers expenses, income, transfers and card payments alike; only the account types differ.
+
+```json
+POST /api/transactions
+{ "mode": "SIMPLE", "occurredOn": "2026-08-24", "description": "Weekly groceries",
+  "fromAccountId": "…hdfc-card…", "toAccountId": "…groceries…", "amountMinor": 420000 }
+```
+
+```json
+{ "id": "…", "occurredOn": "2026-08-24", "description": "Weekly groceries",
+  "postings": [ { "accountId": "…groceries…", "accountName": "Groceries", "amountMinor":  420000 },
+                { "accountId": "…hdfc-card…", "accountName": "HDFC Card", "amountMinor": -420000 } ],
+  "reversed": false, "reversesTransactionId": null }
+```
+
+**SPLIT** — one source funding several categories, each with its own amount. The source is credited the exact sum, so there is no remainder to allocate.
+
+```json
+{ "mode": "SPLIT", "occurredOn": "2026-08-24", "description": "Combined bill",
+  "fromAccountId": "…hdfc-card…",
+  "destinations": [ { "accountId": "…groceries…",   "amountMinor": 30000 },
+                    { "accountId": "…electricity…", "amountMinor": 20000 } ] }
+```
+
+**RAW** — an arbitrary, already-signed posting list, for completeness and tests. This is the only mode that can produce an unbalanced request, and it is rejected with 422.
+
+Validation applies identically across all three: at least two postings, postings sum to zero, every account active and in the caller's household, amounts strictly positive (SIMPLE/SPLIT), and the date no more than one day in the future — enough slack for a timezone ahead of the server, not enough for a typo'd year to distort every as-of balance.
+
+### Errors
+
+RFC 7807 Problem Details throughout. `422` unbalanced or future-dated or deactivated account, `409` already reversed or reversing a reversal or duplicate account name, `404` not in your household, `403` not an ADMIN, `401` unauthenticated.
+
+### Reversal
+
+`POST /api/transactions/{id}/reverse` creates a new transaction whose postings are the exact sign-inverse of the original, linked back to it. Neither is deleted or edited and both remain queryable. A transaction may be reversed exactly once, and a reversal cannot itself be reversed (both `409`). Reversal works even if an account has since been deactivated — otherwise deactivating an account could strand a mistake as permanently uncorrectable.
+
+### Accounts
+
+Every new household is seeded with `Cash` (asset), `Opening Balances` (equity), and a default expense set. `Opening Balances` is what lets a household open its ledger with existing balances without inventing money — the counterpart posting goes to equity, so the invariant holds on day one.
+
 ## Architecture
 
 Modular monolith — see PRD §6.1 for the rationale. Module boundaries are enforced by ArchUnit tests in CI (`ModuleBoundaryArchTest`).
@@ -89,7 +164,7 @@ household-ledger/
 ## Testing approach
 
 - **Domain unit tests** — plain JUnit, no Spring context, no database.
-- **Property-based tests (jqwik)** — random posting sets; balanced sets accepted, unbalanced sets rejected, across 1000+ generated cases (Phase 1).
+- **Property-based tests (jqwik)** — random posting sets; balanced sets accepted, unbalanced sets rejected, across 1000+ generated cases each. Phase 4 adds the complementary property for the entry modes: however a user describes a movement of money, the postings produced always sum to zero — so a well-formed request can never reach, let alone trip, the database trigger.
 - **Integration tests (Testcontainers, real Postgres)** — the invariant, immutability, and cross-household isolation are tested against a real Postgres container. The invariant cannot be verified against H2, so this project never uses an in-memory database for anything invariant-related.
 - **Architecture tests (ArchUnit)** — module boundary enforcement.
 

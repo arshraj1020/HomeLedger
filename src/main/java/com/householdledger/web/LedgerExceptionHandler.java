@@ -3,7 +3,11 @@ package com.householdledger.web;
 import com.householdledger.ledger.api.AccountNameAlreadyExistsException;
 import com.householdledger.ledger.api.AccountNotFoundException;
 import com.householdledger.ledger.api.InactiveAccountException;
+import com.householdledger.ledger.api.ReversalTransactionCannotBeReversedException;
+import com.householdledger.ledger.api.TransactionAlreadyReversedException;
 import com.householdledger.ledger.api.TransactionNotFoundException;
+import com.householdledger.ledger.domain.FutureDatedTransactionException;
+import com.householdledger.ledger.domain.UnbalancedTransactionException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -51,6 +55,40 @@ class LedgerExceptionHandler {
         // 422: the request is well-formed but the ledger refuses it, in the
         // same family as the unbalanced-transaction error in PRD §6.4.
         return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Account is deactivated", "inactive-account", e.getMessage());
+    }
+
+    /**
+     * The headline error of PRD §6.4, whose sample response names 422 and
+     * the {@code unbalanced-transaction} type explicitly. Reached only if a
+     * caller supplies a raw posting set that does not sum to zero — the
+     * simple and split modes cannot produce one.
+     */
+    @ExceptionHandler(UnbalancedTransactionException.class)
+    ProblemDetail handleUnbalanced(UnbalancedTransactionException e) {
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY,
+                "Transaction is not balanced", "unbalanced-transaction", e.getMessage());
+    }
+
+    @ExceptionHandler(FutureDatedTransactionException.class)
+    ProblemDetail handleFutureDated(FutureDatedTransactionException e) {
+        // 422 rather than 400: the request is syntactically fine, the ledger
+        // just refuses to record it (PRD §FR-3's date tolerance).
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY,
+                "Transaction date is too far in the future", "future-dated-transaction", e.getMessage());
+    }
+
+    /** PRD §FR-4 names 409 Conflict for a second reversal attempt. */
+    @ExceptionHandler(TransactionAlreadyReversedException.class)
+    ProblemDetail handleAlreadyReversed(TransactionAlreadyReversedException e) {
+        return problem(HttpStatus.CONFLICT,
+                "Transaction already reversed", "transaction-already-reversed", e.getMessage());
+    }
+
+    /** PRD §FR-4: "A reversal transaction cannot itself be reversed." */
+    @ExceptionHandler(ReversalTransactionCannotBeReversedException.class)
+    ProblemDetail handleReversalOfReversal(ReversalTransactionCannotBeReversedException e) {
+        return problem(HttpStatus.CONFLICT,
+                "Reversals cannot be reversed", "reversal-not-reversible", e.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
