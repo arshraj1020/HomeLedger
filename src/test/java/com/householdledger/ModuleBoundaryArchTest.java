@@ -13,6 +13,10 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
  * {@code ledger.internal} (Phase 1), {@code identity.internal} (Phase 2) and
  * {@code reporting.internal} (Phase 6). The rules also pin the direction of
  * every cross-module dependency, so the graph stays acyclic.
+ *
+ * <p>Phase 7 adds the browser UI under {@code web.ui} and four rules for it:
+ * it renders views rather than response bodies, it never touches JWTs or
+ * persistence, and nothing depends on it.
  */
 class ModuleBoundaryArchTest {
 
@@ -250,13 +254,105 @@ class ModuleBoundaryArchTest {
                 .importPackages(BASE));
     }
 
+    /**
+     * Phase 7's UI controllers render views; they must not also be REST
+     * endpoints.
+     *
+     * <p>This is what keeps the two error contracts apart. The API's
+     * {@code @RestControllerAdvice} classes are scoped to
+     * {@code @RestController}, so a UI controller annotated that way by
+     * accident would start answering a browser navigation with an RFC 7807
+     * JSON document instead of a page — and would do it silently, because the
+     * response is still a valid HTTP 404.
+     */
+    @Test
+    void uiControllersRenderViewsRatherThanSerialisingResponseBodies() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".web.ui..")
+                .should().beAnnotatedWith(org.springframework.web.bind.annotation.RestController.class);
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * No JWT reaches the browser UI.
+     *
+     * <p>PRD §FR-1's access and refresh tokens are an API credential. The
+     * browser is authenticated by a server-side session instead, and the
+     * reason that matters is that a token the UI could hold is a token a
+     * script in the page could read. A UI class that imported the JWT library
+     * would be the first step towards putting one in a cookie or a hidden
+     * field, so the boundary is enforced rather than remembered.
+     */
+    @Test
+    void theBrowserUiNeverTouchesJwts() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".web.ui..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("io.jsonwebtoken..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * The UI composes module APIs; it never reaches persistence.
+     *
+     * <p>The tempting shortcut on a page that lists accounts with balances is
+     * a repository call or a JPA entity in a view model — which would put a
+     * lazily-loaded entity in front of a template with {@code open-in-view}
+     * switched off, and give the UI a second, divergent way to read the same
+     * tables. {@code controllersDoNotReachRepositoriesDirectly} already covers
+     * the repository half; this covers the frameworks themselves.
+     */
+    @Test
+    void theUiDoesNotDependOnPersistenceFrameworks() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".web.ui..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage("jakarta.persistence..", "org.springframework.data..",
+                        "org.hibernate..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
+    /**
+     * The UI is a leaf: the JSON API layer does not depend on it.
+     *
+     * <p>Sharing a view model or a formatter "just this once" would tie the
+     * API's response shape to how a page happens to look, and PRD §11 lists
+     * replacing Thymeleaf with a React frontend as future scope. The UI has to
+     * be removable.
+     */
+    @Test
+    void theJsonApiLayerDoesNotDependOnTheUi() {
+        ArchRule rule = com.tngtech.archunit.lang.syntax.ArchRuleDefinition
+                .noClasses()
+                .that().resideInAPackage(BASE + ".web")
+                .should().dependOnClassesThat()
+                .resideInAPackage(BASE + ".web.ui..");
+
+        rule.check(new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages(BASE));
+    }
+
     @Test
     void layeredArchitectureIsRespected() {
         // Documents the intended shape (PRD §6.1). Tightened as each module
         // gains real classes; reporting is still a placeholder package.
         ArchRule rule = layeredArchitecture()
                 .consideringOnlyDependenciesInLayers()
-                .layer("Web").definedBy(BASE + ".web..")
+                .layer("Web").definedBy(BASE + ".web", BASE + ".web.dto..")
+                .layer("Web UI").definedBy(BASE + ".web.ui..")
                 .layer("Ledger API").definedBy(BASE + ".ledger.api..")
                 .layer("Ledger Internal").definedBy(BASE + ".ledger.internal..")
                 .layer("Identity API").definedBy(BASE + ".identity.api..")
@@ -265,7 +361,10 @@ class ModuleBoundaryArchTest {
                 .layer("Reporting Internal").definedBy(BASE + ".reporting.internal..")
                 .whereLayer("Ledger Internal").mayOnlyBeAccessedByLayers("Ledger API")
                 .whereLayer("Identity Internal").mayOnlyBeAccessedByLayers("Identity API")
-                .whereLayer("Reporting Internal").mayOnlyBeAccessedByLayers("Reporting API");
+                .whereLayer("Reporting Internal").mayOnlyBeAccessedByLayers("Reporting API")
+                // Phase 7: nothing depends on the UI, so it can be replaced
+                // wholesale — PRD §11 lists a React frontend as future scope.
+                .whereLayer("Web UI").mayNotBeAccessedByAnyLayer();
 
         rule.check(new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

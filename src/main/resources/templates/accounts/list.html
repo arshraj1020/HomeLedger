@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<!--/*
+  The chart of accounts (PRD §FR-2, §FR-7).
+
+  Grouped by type with balances, and including deactivated accounts, because
+  PRD §FR-2 keeps them "in historical queries" — an account that has been
+  retired still owns everything ever posted to it.
+
+  The admin-only actions are hidden from members, but @PreAuthorize on the
+  controller is what refuses them; this only avoids offering a button that
+  would fail.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Accounts', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="notice notice--ok" th:if="${flash}" role="status" th:text="${flash}">Saved.</div>
+
+    <div class="page__head">
+        <div>
+            <h1>Accounts</h1>
+            <p>
+                <span th:text="${accountCount}">0</span> accounts<span
+                    th:if="${inactiveCount > 0}">, <span th:text="${inactiveCount}">0</span> deactivated</span>.
+                Accounts are never deleted — deactivating one stops new entries and keeps its history.
+            </p>
+        </div>
+        <div class="page__actions" th:if="${currentMemberIsAdmin}">
+            <a class="btn btn--primary" th:href="@{/accounts/new}">New account</a>
+        </div>
+    </div>
+
+    <div class="card" th:each="section : ${sections}" th:unless="${section.empty}">
+        <div class="card__head">
+            <h2 th:text="${section.heading}">Assets</h2>
+            <p class="num" th:text="${section.total}">0.00</p>
+        </div>
+        <div class="scroller">
+            <table>
+                <caption class="visually-hidden" th:text="${section.heading}">Assets</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="num">Balance</th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="account : ${section.accounts}">
+                    <td th:text="${account.name}">Cash</td>
+                    <td>
+                        <span class="badge badge--ok" th:if="${account.active}">Active</span>
+                        <span class="badge badge--quiet" th:unless="${account.active}">Deactivated</span>
+                    </td>
+                    <td class="num" th:classappend="${account.negative} ? 'neg'"
+                        th:text="${account.balance}">0.00</td>
+                    <td class="num">
+                        <a th:href="@{/transactions(accountId=${account.id})}">Entries</a>
+                        <span th:if="${currentMemberIsAdmin}">
+                            · <a th:href="@{/accounts/{id}/edit(id=${account.id})}">Edit</a>
+                        </span>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

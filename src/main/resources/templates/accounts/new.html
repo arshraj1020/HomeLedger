@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<!--/*
+  Creating an account (PRD §FR-2, ADMIN only per PRD §FR-1).
+
+  The type is chosen once, here, and never again: it decides the sign
+  convention the account's balance is read with (PRD §10), so there is no edit
+  form for it.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('New account', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="page__head">
+        <div>
+            <h1>New account</h1>
+            <p>Accounts are the categories the household's money moves between.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card__body">
+            <form th:action="@{/accounts}" th:object="${accountForm}" method="post">
+
+                <div class="notice notice--error" th:if="${#fields.hasGlobalErrors()}" role="alert">
+                    <ul><li th:each="error : ${#fields.globalErrors()}" th:text="${error}">Problem</li></ul>
+                </div>
+
+                <div class="field">
+                    <label for="type">Type</label>
+                    <span class="field__hint">
+                        Assets are what you hold, liabilities what you owe, income where money comes
+                        from, expenses where it goes, and equity the household's own stake.
+                    </span>
+                    <select id="type" th:field="*{type}"
+                            th:attr="aria-invalid=${#fields.hasErrors('type')} ? 'true' : null">
+                        <option value="">Choose a type…</option>
+                        <option th:each="type : ${accountTypes}"
+                                th:value="${type}" th:text="${type}">ASSET</option>
+                    </select>
+                    <span class="field__error" th:if="${#fields.hasErrors('type')}"
+                          th:errors="*{type}">Problem</span>
+                </div>
+
+                <div class="field">
+                    <label for="name">Name</label>
+                    <span class="field__hint">Unique within your household.</span>
+                    <input type="text" id="name" th:field="*{name}" maxlength="100"
+                           autocomplete="off"
+                           th:attr="aria-invalid=${#fields.hasErrors('name')} ? 'true' : null">
+                    <span class="field__error" th:if="${#fields.hasErrors('name')}"
+                          th:errors="*{name}">Problem</span>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Create account</button>
+                    <a class="btn" th:href="@{/accounts}">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

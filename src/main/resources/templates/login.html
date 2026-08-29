@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<!--/*
+  The sign-in page (PRD §FR-7).
+
+  Standalone rather than inside the shared layout: there is no navigation to
+  show, and a header offering links to pages that will bounce back here is
+  worse than no header.
+
+  The form posts to /login, which Spring Security's authentication filter
+  handles before any controller. th:action adds the CSRF token automatically —
+  the reason this template has no hidden field of its own, and the reason it
+  cannot be forgotten.
+
+  The failure message is deliberately the same whether the address is unknown
+  or the password is wrong. Distinguishing them turns a login form into a way
+  to test which addresses are registered.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Sign in · HomeLedger</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main id="main" class="signin">
+    <div class="signin__panel">
+
+        <div class="signin__brand">
+            <span class="brand">
+                <span class="brand__mark" aria-hidden="true">₹</span>
+                <span>HomeLedger</span>
+            </span>
+            <p>Household double-entry accounting</p>
+        </div>
+
+        <div class="notice notice--error" th:if="${loginFailed}" role="alert">
+            We didn't recognise that email and password.
+        </div>
+
+        <div class="notice notice--ok" th:if="${loggedOut}" role="status">
+            You're signed out.
+        </div>
+
+        <div class="card">
+            <div class="card__body">
+                <form th:action="@{/login}" method="post">
+                    <div class="field">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" name="email"
+                               autocomplete="username" autocapitalize="none"
+                               spellcheck="false" required autofocus>
+                    </div>
+
+                    <div class="field">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password"
+                               autocomplete="current-password" required>
+                    </div>
+
+                    <button class="btn btn--primary" type="submit">Sign in</button>
+                </form>
+            </div>
+        </div>
+
+        <p class="small muted">
+            <span class="muted">Accounts are created by a household admin.</span>
+        </p>
+    </div>
+</main>
+</body>
+</html>

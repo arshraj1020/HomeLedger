@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<!--/*
+  A transaction with its postings, and the reverse action (PRD §FR-4, §FR-7).
+
+  Postings are shown as debits and credits in two columns rather than as signed
+  numbers, because the two columns totalling the same amount is what double
+  entry looks like — the invariant of PRD §3.2, visible on the page.
+
+  Reversing is a POST, so it carries a CSRF token and cannot be triggered by a
+  link someone was sent. The button disappears once a transaction has been
+  reversed and never appears on a reversal, matching PRD §FR-4's two rules —
+  but the service checks both again, so hiding the button is not what enforces
+  them.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Transaction', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="notice notice--ok" th:if="${flash}" role="status" th:text="${flash}">Done.</div>
+
+    <div class="page__head">
+        <div>
+            <h1 th:text="${transaction.description}">Groceries</h1>
+            <p>
+                <span th:text="${#temporals.format(transaction.occurredOn, 'd MMMM yyyy')}">1 January 2026</span>
+                <span class="badge badge--quiet" th:if="${transaction.reversed}">Reversed</span>
+                <span class="badge badge--quiet" th:if="${transaction.reversal}">Reversal</span>
+            </p>
+        </div>
+        <div class="page__actions">
+            <a class="btn" th:href="@{/transactions}">Back to list</a>
+            <form th:action="@{/transactions/{id}/reverse(id=${transaction.id})}" method="post"
+                  th:if="${transaction.reversible}">
+                <button class="btn btn--danger" type="submit">Reverse this transaction</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="notice notice--warn" th:if="${transaction.reversal}" role="note">
+        This entry was created to cancel another one. The original was left exactly as it was —
+        nothing in this ledger is edited or deleted.
+        <span th:if="${transaction.reversesTransactionId}">
+            <a th:href="@{/transactions/{id}(id=${transaction.reversesTransactionId})}">See the original</a>.
+        </span>
+    </div>
+
+    <div class="notice notice--warn" th:if="${transaction.reversed}" role="note">
+        This transaction has been reversed, so its effect has been cancelled by a later entry.
+        It remains here unchanged as the record of what was originally entered.
+    </div>
+
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h2>Postings</h2>
+                <p>Where the money moved from and to.</p>
+            </div>
+            <span class="badge badge--ok" th:if="${transaction.balanced}">Debits equal credits</span>
+            <span class="badge badge--alert" th:unless="${transaction.balanced}">Out of balance</span>
+        </div>
+        <div class="scroller">
+            <table>
+                <caption class="visually-hidden">Postings</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Account</th>
+                    <th scope="col" class="num">Debit</th>
+                    <th scope="col" class="num">Credit</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="posting : ${transaction.postings}">
+                    <td>
+                        <a th:href="@{/transactions(accountId=${posting.accountId})}"
+                           th:text="${posting.accountName}">Groceries</a>
+                    </td>
+                    <td class="num" th:text="${posting.debit}"></td>
+                    <td class="num" th:text="${posting.credit}"></td>
+                </tr>
+                </tbody>
+                <tfoot>
+                <tr>
+                    <td>Total</td>
+                    <td class="num" th:text="${transaction.totalDebits}">0.00</td>
+                    <td class="num" th:text="${transaction.totalCredits}">0.00</td>
+                </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>
