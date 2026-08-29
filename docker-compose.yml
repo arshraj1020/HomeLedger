@@ -1,16 +1,30 @@
+# Local orchestration: Postgres 16 plus the application image.
+#
+# No credentials are committed here. Every value below comes from a .env file
+# that stays out of Git — copy .env.example to .env and fill it in. The
+# `${VAR:?message}` form makes Compose refuse to start with a readable error
+# rather than substituting an empty string, which is how a container ends up
+# running with a blank password.
+#
+#   cp .env.example .env
+#   # edit .env, then:
+#   docker compose up --build
+
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: household_ledger
-      POSTGRES_USER: household_ledger
-      POSTGRES_PASSWORD: household_ledger
+      POSTGRES_DB: "${DB_NAME:-household_ledger}"
+      POSTGRES_USER: "${DB_USER:?set DB_USER in .env}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:?set DB_PASSWORD in .env}"
     ports:
-      - "5432:5432"
+      # Published on 127.0.0.1 rather than 0.0.0.0 so the development database
+      # is not reachable from the local network.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - household_ledger_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U household_ledger -d household_ledger"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME:-household_ledger}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -23,14 +37,28 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: household_ledger
-      DB_USER: household_ledger
-      DB_PASSWORD: household_ledger
-      JWT_SECRET: dev-only-secret-change-in-any-real-deployment-minimum-256-bits
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "${DB_NAME:-household_ledger}"
+      DB_USER: "${DB_USER:?set DB_USER in .env}"
+      DB_PASSWORD: "${DB_PASSWORD:?set DB_PASSWORD in .env}"
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET in .env - generate one with openssl rand -base64 48}"
+      # Compose serves the app over plain HTTP on localhost, so a Secure
+      # session cookie would be dropped by the browser and login would loop.
+      # Production defaults this to true (application.yml); this is the one
+      # place it is explicitly turned off, and it is visible here rather than
+      # hidden in a profile.
+      SESSION_COOKIE_SECURE: "false"
+      # Opt in to the dev bootstrap by also setting SPRING_PROFILES_ACTIVE=dev
+      # and DEV_ADMIN_* in .env — see README "Getting a login for the first
+      # time". Empty means the default (production) profile, which creates no
+      # users at all.
+      SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-}"
+      DEV_ADMIN_EMAIL: "${DEV_ADMIN_EMAIL:-}"
+      DEV_ADMIN_PASSWORD: "${DEV_ADMIN_PASSWORD:-}"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    restart: unless-stopped
 
 volumes:
   household_ledger_pgdata:

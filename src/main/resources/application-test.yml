@@ -1,13 +1,39 @@
-# Overridden per-test by Testcontainers @DynamicPropertySource where needed.
+# Test profile.
+#
 # Kept minimal deliberately: the invariant cannot be verified against H2, so
-# integration tests always point at a real Postgres container, never this file's datasource.
+# integration tests always point at a real Postgres container, never at this
+# file's datasource. Every integration test supplies the container's real
+# url/username/password through @DynamicPropertySource, which outranks
+# everything here.
+#
+# The credentials below are a safety net, not configuration: application.yml
+# deliberately gives DB_USER and DB_PASSWORD no defaults, so a future
+# @SpringBootTest that forgot @DynamicPropertySource would otherwise fail with
+# an unresolved-placeholder error that says nothing about the real mistake.
+# These values match the Testcontainers defaults used across the suite.
 spring:
+  datasource:
+    username: test
+    password: test
+
   jpa:
     hibernate:
       ddl-auto: validate
+
   flyway:
     enabled: true
 
+server:
+  servlet:
+    session:
+      cookie:
+        # MockMvc does not enforce the Secure attribute, but keeping tests on
+        # the same setting as local development avoids a difference that would
+        # only ever show up as a confusing browser-only bug.
+        secure: false
+
 security:
   jwt:
+    # A test fixture, not a secret: it signs tokens that live inside a single
+    # test JVM against a container that is destroyed when the run ends.
     secret: test-only-secret-not-for-any-real-environment-minimum-256-bits-long

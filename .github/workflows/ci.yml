@@ -6,38 +6,50 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel superseded runs on the same branch — the integration job pulls a
+# Postgres image and takes minutes; two of them racing helps nobody.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "21"
+
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-      - name: Compile
-        run: mvn -B -DskipTests compile
-
   unit:
-    name: Unit tests
-    needs: build
+    name: Unit + property tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ env.JAVA_VERSION }}
           cache: maven
-      # Runs domain/service-layer unit tests and jqwik property tests
-      # (Surefire scope — see pom.xml). Does not touch Postgres.
-      - name: Unit + property tests
-        run: mvn -B test
+      # pom.xml binds maven-toolchains-plugin to `validate`, so every Maven
+      # lifecycle invocation needs a JDK 21 toolchain on disk. Written
+      # explicitly rather than relying on setup-java's own toolchain handling,
+      # so the build does not depend on undocumented action behaviour.
+      - name: Declare the JDK 21 toolchain
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/toolchains.xml <<XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <toolchains>
+            <toolchain>
+              <type>jdk</type>
+              <provides><version>21</version></provides>
+              <configuration><jdkHome>${JAVA_HOME}</jdkHome></configuration>
+            </toolchain>
+          </toolchains>
+          XML
+      # Surefire scope (see pom.xml): domain unit tests and jqwik property
+      # tests. Touches no database.
+      - name: mvn test
+        run: mvn -B -ntp test
 
-  integration:
-    name: Integration tests (Testcontainers)
+  verify:
+    name: Integration tests + ArchUnit + coverage
     needs: unit
     runs-on: ubuntu-latest
     steps:
@@ -45,29 +57,137 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ env.JAVA_VERSION }}
           cache: maven
-      # Testcontainers pulls its own Postgres image; the runner's Docker
-      # daemon is used directly, no docker-compose needed here.
-      - name: Integration tests
-        run: mvn -B verify -DskipUnitTests=false
+      - name: Declare the JDK 21 toolchain
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/toolchains.xml <<XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <toolchains>
+            <toolchain>
+              <type>jdk</type>
+              <provides><version>21</version></provides>
+              <configuration><jdkHome>${JAVA_HOME}</jdkHome></configuration>
+            </toolchain>
+          </toolchains>
+          XML
+      # One `verify` runs everything the Failsafe scope owns: the Testcontainers
+      # integration suite against a real Postgres, the ArchUnit module-boundary
+      # rules, and the JaCoCo 80% line-coverage gate. The runner's own Docker
+      # daemon is used directly — no compose needed, and Testcontainers pulls
+      # the postgres:16 image itself.
+      #
+      # This replaces the previous separate `archunit` job, which passed
+      # `-Dtest=*ArchTest`: that filters Surefire, not Failsafe, so it ran the
+      # entire integration suite a second time under a name suggesting
+      # otherwise. ArchUnit runs here, once.
+      - name: mvn verify
+        run: mvn -B -ntp verify
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            target/site/jacoco*/
+          retention-days: 7
 
-  archunit:
-    name: Module boundary check (ArchUnit)
-    needs: build
+  package:
+    name: Package executable JAR
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: ${{ env.JAVA_VERSION }}
           cache: maven
-      # ArchUnit tests are wired into the Failsafe (integration) phase — see
-      # pom.xml surefire/failsafe include/exclude split — so this job is
-      # currently a duplicate-safety run scoped to *ArchTest.java specifically.
-      # Kept as its own CI job (rather than folded into `integration`) so a
-      # module-boundary violation is reported distinctly from a data-layer
-      # integration failure.
-      - name: ArchUnit
-        run: mvn -B verify -Dtest=*ArchTest -DfailIfNoTests=false
+      - name: Declare the JDK 21 toolchain
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/toolchains.xml <<XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <toolchains>
+            <toolchain>
+              <type>jdk</type>
+              <provides><version>21</version></provides>
+              <configuration><jdkHome>${JAVA_HOME}</jdkHome></configuration>
+            </toolchain>
+          </toolchains>
+          XML
+      # Tests already ran in the jobs above; this proves the Boot repackage
+      # step produces a runnable fat JAR.
+      - name: mvn package
+        run: mvn -B -ntp -DskipTests package
+      - name: Verify the JAR is executable and self-contained
+        run: |
+          JAR=$(ls target/household-ledger-*.jar | grep -v '\.original$')
+          echo "Built: $JAR"
+          unzip -l "$JAR" | grep -q 'BOOT-INF/lib/' \
+            && echo "OK: dependencies are packaged inside the JAR"
+          unzip -p "$JAR" META-INF/MANIFEST.MF | grep -E 'Main-Class|Start-Class'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: household-ledger-jar
+          path: target/household-ledger-*.jar
+          retention-days: 7
+
+  image:
+    name: Build Docker image
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Builds only — no registry push and no credentials. Publishing is a
+      # deployment decision, not a CI default; add a push step when a registry
+      # is actually chosen.
+      - name: docker build
+        run: docker build -t household-ledger:${{ github.sha }} .
+      # The image must not carry secrets. This fails the build if any of the
+      # runtime secret names appears with a value baked into a layer.
+      - name: Assert no secrets baked into the image
+        run: |
+          if docker history --no-trunc household-ledger:${{ github.sha }} \
+               | grep -Eq '(JWT_SECRET|DB_PASSWORD|DEV_ADMIN_PASSWORD)='; then
+            echo "::error::A secret appears to be baked into an image layer"
+            exit 1
+          fi
+          echo "OK: no secret values in image layers"
+      - name: Container starts and reports healthy
+        run: |
+          docker network create ledger-ci
+          docker run -d --name pg --network ledger-ci \
+            -e POSTGRES_DB=household_ledger \
+            -e POSTGRES_USER=ci \
+            -e POSTGRES_PASSWORD="$(openssl rand -hex 16)" \
+            postgres:16
+          # Wait for Postgres properly: the application fails fast if the
+          # database is not accepting connections at boot, so a fixed sleep
+          # would turn a slow runner into a flaky test.
+          for i in $(seq 1 30); do
+            docker exec pg pg_isready -U ci -d household_ledger && break
+            sleep 2
+          done
+          PGPW=$(docker exec pg printenv POSTGRES_PASSWORD)
+          docker run -d --name app --network ledger-ci -p 8080:8080 \
+            -e DB_HOST=pg -e DB_NAME=household_ledger \
+            -e DB_USER=ci -e DB_PASSWORD="$PGPW" \
+            -e JWT_SECRET="$(openssl rand -base64 48)" \
+            household-ledger:${{ github.sha }}
+          # Flyway must migrate a completely fresh database on first boot.
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+              echo "Application reported UP after ${i}0s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Application never became healthy"
+          docker logs app
+          exit 1
+      - name: Container logs
+        if: always()
+        run: docker logs app 2>&1 | tail -60 || true

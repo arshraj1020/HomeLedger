@@ -60,13 +60,64 @@ sed "s#REPLACE_WITH_JDK21_HOME#$JDK21_HOME#" toolchains.xml.example > ~/.m2/tool
 
 Step 3 (or a permanent JAVA_HOME/PATH change, e.g. via `jenv` or your shell profile) satisfies the enforcer rule; step 4's toolchain is what actually routes compilation and test execution to JDK 21, and is the piece that protects CI or a teammate whose default JDK is something else. Both are checked into how the build is configured — see the `maven-enforcer-plugin`, `maven-compiler-plugin`, `maven-toolchains-plugin`, and the `<jdkToolchain>` blocks on `maven-surefire-plugin`/`maven-failsafe-plugin` in `pom.xml`.
 
-### Running the app
+### Prerequisites
+
+| | |
+|---|---|
+| JDK 21 | Enforced by the build (`maven-enforcer-plugin`). See "Java 21, specifically" above. |
+| Maven 3.9+ | |
+| Docker | Runs the local Postgres, and the integration tests (Testcontainers). |
+| `~/.m2/toolchains.xml` | Declares JDK 21 to the build — see `toolchains.xml.example`. The Docker image and CI generate their own. |
+
+### Running the app locally
 
 ```bash
-docker compose up
+cp .env.example .env          # then fill in DB_PASSWORD and JWT_SECRET
+docker compose up --build
 ```
 
-This builds the app image, starts Postgres 16, runs Flyway migrations on startup, and serves the app on `http://localhost:8080`.
+Compose reads `.env`, starts Postgres 16, runs Flyway on first boot, and serves the app on `http://localhost:8080`. It refuses to start if a required value is missing rather than substituting an empty one.
+
+To run the app from Maven against just the containerised database:
+
+```bash
+docker compose up -d postgres
+set -a; source .env; set +a      # same .env Compose reads — one source of truth
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+### Environment variables
+
+**Required in every environment.** The application will not start without these — there are no defaults, because a default secret is a published secret.
+
+| Variable | Purpose |
+|---|---|
+| `DB_USER` | Postgres username |
+| `DB_PASSWORD` | Postgres password |
+| `JWT_SECRET` | Access-token signing key, **min 32 bytes**. Generate with `openssl rand -base64 48`. Rotating it invalidates every issued access token. |
+
+**Optional, with production-safe defaults.**
+
+| Variable | Default | Notes |
+|---|---|---|
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | `localhost` / `5432` / `household_ledger` | Or override the whole JDBC URL with `SPRING_DATASOURCE_URL`, which most platforms supply. |
+| `PORT` | `8080` | The app binds `0.0.0.0`. |
+| `SESSION_COOKIE_SECURE` | `true` | Set `false` only for plain-HTTP local runs. |
+| `FORWARD_HEADERS_STRATEGY` | `framework` | Honours `X-Forwarded-Proto/Host` so redirects come back as HTTPS behind a proxy. |
+| `DB_POOL_MAX_SIZE` / `DB_POOL_MIN_IDLE` | `10` / `2` | Per instance. Managed Postgres plans cap total connections. |
+| `SWAGGER_UI_ENABLED` / `API_DOCS_ENABLED` | `true` | Set `false` to stop publishing a live API console. |
+| `LOG_LEVEL_ROOT` / `LOG_LEVEL_APP` | `INFO` | Do not set Hibernate to DEBUG in production — it logs SQL with account names and transaction descriptions. |
+| `SPRING_PROFILES_ACTIVE` | *(none)* | **Never set this to `dev` in a deployed environment.** |
+
+**Development only** (`dev` profile): `DEV_ADMIN_EMAIL`, `DEV_ADMIN_PASSWORD`, optionally `DEV_HOUSEHOLD_NAME`, `DEV_ADMIN_NAME`.
+
+Secrets belong in your platform's secret store or a local `.env` (gitignored). Nothing secret is committed to this repository, and nothing secret is baked into the Docker image.
+
+### Database
+
+PostgreSQL 16. Flyway owns the schema and runs on startup; Hibernate is `ddl-auto: validate` and will refuse to start if the two disagree. A **fresh, empty database is the expected starting state** — `V1__baseline_schema.sql` creates everything, and `baseline-on-migrate` is deliberately off so an unrecognised existing database stops the deploy instead of being assumed correct.
+
+The application needs a role that can create tables, extensions (`pgcrypto`) and triggers in its own schema on first run.
 
 ### Getting a login for the first time
 
@@ -74,30 +125,19 @@ There is no sign-up page, and there is not going to be one. PRD §6.4 has no reg
 
 The `dev` profile closes that gap by creating one household and one ADMIN member at startup. It is off unless you ask for it:
 
+Put `DEV_ADMIN_EMAIL` and `DEV_ADMIN_PASSWORD` in your `.env` (see `.env.example`), then:
+
 ```bash
-docker compose up -d postgres          # database only
-
-export DEV_ADMIN_EMAIL='you@example.com'
-export DEV_ADMIN_PASSWORD='something-long-only-you-know'
-export JWT_SECRET='local-dev-secret-at-least-32-bytes-long-xxxxx'
-
+docker compose up -d postgres
+set -a; source .env; set +a
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Then sign in at `http://localhost:8080/login` with that email and that password. The startup log names the address it created; it does **not** print the password, because a log line is a file, a scrollback buffer and a shipped container's stdout. The password is the one you exported — nothing generates or stores a copy of it.
+Or with the whole stack in Compose: set `SPRING_PROFILES_ACTIVE=dev` and the two `DEV_ADMIN_*` values in `.env`, then `docker compose up --build`.
 
-| Variable | Required | Default |
-|---|---|---|
-| `DEV_ADMIN_EMAIL` | yes | none — startup fails without it |
-| `DEV_ADMIN_PASSWORD` | yes | none — startup fails without it |
-| `DEV_HOUSEHOLD_NAME` | no | `Development Household` |
-| `DEV_ADMIN_NAME` | no | `Development Admin` |
+Sign in at `http://localhost:8080/login` with that email and password. The startup log names the address it created; it does **not** print the password, because a log line is a file, a scrollback buffer and a shipped container's stdout.
 
-There are deliberately **no default credentials anywhere in this repository**. A default password is a known password, and this one opens an ADMIN account. If either variable is missing the application refuses to start and names the one to set, which is the same position `application.yml` takes on `JWT_SECRET` (PRD §5: "No plaintext secrets in repo").
-
-Re-running is safe: the bootstrap keys on the member's email, so a restart with the same settings does nothing. Changing `DEV_ADMIN_EMAIL` creates a second household — which is what you want if you are deliberately testing with two.
-
-`docker compose up` on its own runs the **default** profile and creates nothing. Nothing outside the `dev` profile ever writes a user.
+Re-running is safe: the bootstrap keys on the member's email, so a restart with the same settings does nothing. Nothing outside the `dev` profile ever writes a user — asserted by `DevelopmentAdminBootstrapDisabledIT`, which sets perfectly valid bootstrap properties and proves the bean does not exist.
 
 ### Running tests
 
@@ -142,6 +182,53 @@ The API and the UI are authenticated separately, by two `SecurityFilterChain` be
 Merging them would mean either running the browser UI without CSRF protection or making the API answer clients with HTML login pages. **No JWT is ever issued to the browser**, so there is no token in a cookie or in the page for a script to read; the session cookie is the only credential a browser holds, and a browser session does not authenticate the API.
 
 Both doors enforce the same rules with the same code: household scoping comes from the authenticated principal (`AuthenticatedMember`) in both cases, `@PreAuthorize("hasRole('ADMIN')")` guards account management in both, and another household's resource is **404, not 403** in both. Only the error rendering differs — the API returns RFC 7807 problem documents, the UI returns pages — and the UI's pages carry fixed messages, never the exception's, so no identifier reaches the browser.
+
+## Docker
+
+```bash
+docker build -t household-ledger:latest .
+
+docker run --rm -p 8080:8080 \
+  -e DB_HOST=host.docker.internal -e DB_NAME=household_ledger \
+  -e DB_USER=household_ledger -e DB_PASSWORD='...' \
+  -e JWT_SECRET="$(openssl rand -base64 48)" \
+  household-ledger:latest
+```
+
+Multi-stage: Maven + JDK 21 to build, `eclipse-temurin:21-jre-jammy` to run. The container runs as an unprivileged `app` user, sizes the heap from the container's own memory limit (`MaxRAMPercentage=75`), and exits on OOM so an orchestrator restarts it rather than leaving a wedged JVM. `java` runs as PID 1, so `SIGTERM` reaches it and in-flight requests drain before exit.
+
+No secrets are in the image. CI asserts this by grepping image layer history for secret names.
+
+## Deploying
+
+The deployment model is deliberately plain: **one container, one PostgreSQL database.** Nothing is provider-specific — it runs anywhere that can run a container and hand it environment variables.
+
+1. Provision PostgreSQL 16 and an empty database.
+2. Build and push the image, or point the platform at this repository's `Dockerfile`.
+3. Set `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` and `JWT_SECRET` (and `PORT` if the platform does not set it). Leave `SPRING_PROFILES_ACTIVE` unset.
+4. Deploy. Flyway migrates on first boot; watch for `Successfully applied 2 migrations`.
+5. Point the platform's health check at `/actuator/health`.
+
+**Creating the first admin in production.** The `dev` bootstrap is not the mechanism — it must never run in a deployed environment. Create the first household and ADMIN with a one-off `psql` insert (bcrypt the password yourself), or run the image once with a task/console command against the production database. Treat it as a deliberate, audited step.
+
+### Health checks
+
+| Endpoint | Auth | Use |
+|---|---|---|
+| `/actuator/health` | public | Platform health check. Anonymous callers see `{"status":"UP"}` only — component detail is `when-authorized`. |
+| `/actuator/health/liveness` | public | "Restart me." |
+| `/actuator/health/readiness` | public | "Stop sending me traffic." |
+| `/actuator/metrics` | **requires a token** | |
+
+Nothing else is exposed — no `env`, `beans`, `configprops`, `heapdump` or `threaddump`.
+
+### Deployment notes
+
+- **Rotating `JWT_SECRET`** invalidates every outstanding access token. Refresh tokens are stored hashed in the database and survive.
+- **Logs go to stdout only.** There is no file appender anywhere in the project.
+- **Run one instance, or add sticky sessions.** The browser UI uses an in-memory HTTP session; the JSON API is stateless and scales freely.
+- **Scale the connection pool with care.** `DB_POOL_MAX_SIZE` is *per instance*, and managed Postgres plans cap total connections.
+- The `dev` profile is the single most dangerous setting in this application. It creates an ADMIN account. `SPRING_PROFILES_ACTIVE` must not contain `dev` in production.
 
 ## API
 

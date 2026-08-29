@@ -1,14 +1,52 @@
+# Production baseline.
+#
+# This file is the DEFAULT profile, and the default profile is production.
+# That direction matters: a configuration whose defaults are convenient for a
+# laptop is a configuration that deploys insecurely the first time someone
+# forgets a variable. Local conveniences live in application-dev.yml, which
+# has to be asked for by name.
+#
+# Nothing here is a secret. Values that are secret have no default at all, so
+# a missing one stops startup with "Could not resolve placeholder" instead of
+# quietly falling back to something published in this repository.
+#
+# Required in every environment: DB_USER, DB_PASSWORD, JWT_SECRET.
+# See README.md "Environment variables" for the full list.
+
 spring:
   application:
     name: household-ledger
 
   datasource:
+    # Host/port/name have defaults because they are addresses, not credentials,
+    # and a wrong address fails loudly at the first connection. A platform that
+    # supplies its own JDBC URL can override the whole property with
+    # SPRING_DATASOURCE_URL, which takes precedence over this file.
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:household_ledger}
-    username: ${DB_USER:household_ledger}
-    password: ${DB_PASSWORD:household_ledger}
+    # No defaults: these are credentials.
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+
+    hikari:
+      pool-name: household-ledger-pool
+      # Sized for the PRD §5 workload — a household ledger, not a multi-tenant
+      # SaaS. Ten connections is already more than a single instance can use
+      # concurrently, and managed Postgres plans cap total connections low
+      # enough that an over-sized pool per instance is how a deploy runs out.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:10000}
+      # Below the 30-minute idle cut common to managed Postgres and connection
+      # proxies, so the pool retires a connection before the network does and
+      # a request never lands on a socket the server has already closed.
+      max-lifetime: ${DB_MAX_LIFETIME_MS:1740000}
+      keepalive-time: ${DB_KEEPALIVE_MS:300000}
 
   jpa:
     hibernate:
+      # Never 'update' or 'create': Flyway owns the schema (PRD §6.2), and a
+      # Hibernate that can alter tables is a Hibernate that can silently
+      # disagree with the migrations.
       ddl-auto: validate
     open-in-view: false
     properties:
@@ -19,45 +57,93 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Deliberately no baseline-on-migrate: a fresh production database should
+    # run V1 from the start, and an existing database that Flyway does not
+    # recognise should stop the deploy rather than assume it is already at
+    # some version.
 
   thymeleaf:
-    # Cached by default, because Phase 7 gives the application real templates
-    # and an uncached engine re-parses every one of them on every request —
-    # straight into the PRD §5 p95 target. Set THYMELEAF_CACHE=false while
-    # working on the UI to see edits without a restart.
     cache: ${THYMELEAF_CACHE:true}
+
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
 
 security:
   jwt:
     # PRD §5: "No plaintext secrets in repo; JWT secret via env var."
-    # The fallback is a clearly-labelled local development placeholder, not a
-    # secret: it exists so `docker compose up` works out of the box. Any real
-    # deployment MUST set JWT_SECRET. JwtProperties.validate() rejects a
-    # secret shorter than 32 bytes at startup rather than issuing weakly
-    # signed tokens.
-    secret: ${JWT_SECRET:local-development-only-not-a-secret-replace-via-JWT_SECRET-env-var}
+    #
+    # No fallback, on purpose. A default here would be a signing key published
+    # in this repository: anyone could mint an access token carrying any
+    # householdId and read or write another household's ledger, and the
+    # application would start perfectly happily while they did it. Missing is
+    # better than known.
+    #
+    # Generate one with:  openssl rand -base64 48
+    secret: ${JWT_SECRET}
     # PRD §FR-1: 15-minute access token, 7-day rotating refresh token.
-    access-token-ttl-minutes: 15
-    refresh-token-ttl-days: 7
+    access-token-ttl-minutes: ${JWT_ACCESS_TTL_MINUTES:15}
+    refresh-token-ttl-days: ${JWT_REFRESH_TTL_DAYS:7}
 
 management:
   endpoints:
     web:
       exposure:
+        # health and info are public (see SecurityConfig); metrics is exposed
+        # but still requires a valid access token, so it is safe to include and
+        # useful to have. Nothing else is exposed — env, beans, configprops,
+        # heapdump and threaddump all stay off.
         include: health,info,metrics
   endpoint:
     health:
       show-details: when-authorized
+      probes:
+        # /actuator/health/liveness and /actuator/health/readiness, for
+        # orchestrators that distinguish "restart me" from "stop sending me
+        # traffic". Both report status only.
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+    # On by default: PRD §9's acceptance criteria require Swagger UI to be
+    # reachable and every endpoint documented, and an integration test asserts
+    # it. Both are switchable off for a deployment that would rather not
+    # publish a live request console — set SWAGGER_UI_ENABLED=false and
+    # API_DOCS_ENABLED=false. They expose no data, only the API's shape, and
+    # every documented endpoint still requires a token.
+    enabled: ${SWAGGER_UI_ENABLED:true}
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:true}
 
 server:
+  # PORT is the convention every container platform sets. Boot binds 0.0.0.0
+  # by default, which is what a container needs.
   port: ${PORT:8080}
+  # Behind a load balancer or ingress, honour X-Forwarded-Proto/Host so that
+  # redirects (the login flow issues several) come back as https rather than
+  # bouncing the browser to http.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:framework}
+  # Finish in-flight requests before exiting on SIGTERM, so a rolling deploy
+  # does not cut a transaction in half.
+  shutdown: graceful
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        # Secure by default: the session cookie is the browser's only
+        # credential. Local HTTP development sets this false explicitly
+        # (application-dev.yml, docker-compose.yml) rather than the default
+        # being the unsafe one.
+        secure: ${SESSION_COOKIE_SECURE:true}
   error:
-    # These are Boot's defaults, stated explicitly because the browser error
-    # page renders whatever is in the error model. PRD §9 requires that
+    # Boot's defaults, stated explicitly because the browser error page
+    # renders whatever is in the error model. PRD §9 requires that
     # implementation details, stack traces and SQL never reach a client, and a
     # future "just for debugging" flip of one of these would leak all three
     # into a page rather than into a log.
@@ -67,5 +153,14 @@ server:
     include-exception: false
 
 logging:
+  # Console only — no file appender anywhere in this project. A container's
+  # logs belong on stdout, where the platform collects them; a log file inside
+  # a container is a log file nobody reads and a disk nobody watches.
   level:
-    com.householdledger: INFO
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.householdledger: ${LOG_LEVEL_APP:INFO}
+    # Kept at INFO deliberately. DEBUG on either of these logs SQL statements
+    # and bound parameters — which for this application means account names
+    # and transaction descriptions in plaintext, in a log aggregator.
+    org.hibernate.SQL: WARN
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}

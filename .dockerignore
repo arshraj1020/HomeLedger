@@ -1,6 +1,29 @@
+# Build output and local caches
 target/
+.jqwik-database
+
+# VCS and CI
 .git/
 .github/
-*.md
+.gitignore
+
+# Editors / OS
 .idea/
+.vscode/
 *.iml
+*.iws
+.DS_Store
+
+# Docs (the image needs none of them)
+*.md
+
+# Local secrets and logs — belt and braces. These are gitignored too, but a
+# .dockerignore miss is how a developer's .env ends up in an image layer.
+.env
+.env.*
+!.env.example
+*.log
+
+# Compose is a local orchestration concern, not part of the image
+docker-compose.yml
+Dockerfile
