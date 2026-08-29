@@ -68,6 +68,37 @@ docker compose up
 
 This builds the app image, starts Postgres 16, runs Flyway migrations on startup, and serves the app on `http://localhost:8080`.
 
+### Getting a login for the first time
+
+There is no sign-up page, and there is not going to be one. PRD §6.4 has no registration endpoint and PRD §FR-1 gives members no way to create themselves — an ADMIN manages members. That is correct for a household ledger and wrong for a fresh checkout, which starts with a login page and nobody able to use it.
+
+The `dev` profile closes that gap by creating one household and one ADMIN member at startup. It is off unless you ask for it:
+
+```bash
+docker compose up -d postgres          # database only
+
+export DEV_ADMIN_EMAIL='you@example.com'
+export DEV_ADMIN_PASSWORD='something-long-only-you-know'
+export JWT_SECRET='local-dev-secret-at-least-32-bytes-long-xxxxx'
+
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+Then sign in at `http://localhost:8080/login` with that email and that password. The startup log names the address it created; it does **not** print the password, because a log line is a file, a scrollback buffer and a shipped container's stdout. The password is the one you exported — nothing generates or stores a copy of it.
+
+| Variable | Required | Default |
+|---|---|---|
+| `DEV_ADMIN_EMAIL` | yes | none — startup fails without it |
+| `DEV_ADMIN_PASSWORD` | yes | none — startup fails without it |
+| `DEV_HOUSEHOLD_NAME` | no | `Development Household` |
+| `DEV_ADMIN_NAME` | no | `Development Admin` |
+
+There are deliberately **no default credentials anywhere in this repository**. A default password is a known password, and this one opens an ADMIN account. If either variable is missing the application refuses to start and names the one to set, which is the same position `application.yml` takes on `JWT_SECRET` (PRD §5: "No plaintext secrets in repo").
+
+Re-running is safe: the bootstrap keys on the member's email, so a restart with the same settings does nothing. Changing `DEV_ADMIN_EMAIL` creates a second household — which is what you want if you are deliberately testing with two.
+
+`docker compose up` on its own runs the **default** profile and creates nothing. Nothing outside the `dev` profile ever writes a user.
+
 ### Running tests
 
 Requires a Docker daemon for Testcontainers (Docker Desktop running, `docker info` succeeds):

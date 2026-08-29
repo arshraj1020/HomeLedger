@@ -1,0 +1,29 @@
+# Local development only.
+#
+# Activating this profile creates a household and an ADMIN member at startup
+# (see DevelopmentAdminBootstrap). Never activate 'dev' in a deployed
+# environment: the default profile has no bootstrap of any kind, which is the
+# whole point of keeping this in a separate file.
+#
+# There are deliberately NO default credentials below. If DEV_ADMIN_EMAIL or
+# DEV_ADMIN_PASSWORD is unset the application refuses to start and tells you
+# which variable to set, rather than creating an ADMIN account whose password
+# is in the repository and therefore in everyone's hands. This is the same
+# position application.yml takes on JWT_SECRET (PRD §5: "No plaintext secrets
+# in repo").
+#
+#   export DEV_ADMIN_EMAIL='you@example.com'
+#   export DEV_ADMIN_PASSWORD='something-long-only-you-know'
+#   mvn spring-boot:run -Dspring-boot.run.profiles=dev
+bootstrap:
+  dev-admin:
+    household-name: ${DEV_HOUSEHOLD_NAME:Development Household}
+    member-name: ${DEV_ADMIN_NAME:Development Admin}
+    email: ${DEV_ADMIN_EMAIL:}
+    password: ${DEV_ADMIN_PASSWORD:}
+
+spring:
+  thymeleaf:
+    # Template edits show up on reload without restarting. Production keeps
+    # the cache on (application.yml).
+    cache: false
