@@ -86,7 +86,14 @@ class SecurityConfig {
                         // Public: authentication itself, API docs, and health.
                         .requestMatchers("/api/auth/login", "/api/auth/refresh", "/api/auth/logout").permitAll()
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        // health/** rather than health: Boot's liveness and
+                        // readiness probes live at /actuator/health/liveness and
+                        // /actuator/health/readiness, and an orchestrator polls them
+                        // without credentials. Both return a status and nothing else —
+                        // show-details is "when-authorized", so an anonymous caller
+                        // sees {"status":"UP"} and no component detail.
+                        .requestMatchers("/actuator/health", "/actuator/health/**",
+                                "/actuator/info").permitAll()
                         // Everything else requires a valid access token. Note
                         // this is deny-by-default: an endpoint added in a later
                         // phase is protected unless explicitly opened.
