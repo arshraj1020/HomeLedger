@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<!--/*
+  Renaming and activating/deactivating an account (PRD §FR-2, ADMIN only).
+
+  There is no type field and no delete button, and both absences are the
+  design. Changing a type would restate the meaning of every posting already
+  made against the account; deleting one would take its history with it, which
+  PRD §FR-2 forbids outright.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Edit account', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="page__head">
+        <div>
+            <h1 th:text="${accountName}">Cash</h1>
+            <p>
+                <span th:text="${accountTypeHeading}">Assets</span> ·
+                an account's type never changes, because it decides how its balance is read.
+            </p>
+        </div>
+        <div class="page__actions">
+            <a class="btn" th:href="@{/transactions(accountId=${accountId})}">See entries</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card__body">
+            <form th:action="@{/accounts/{id}(id=${accountId})}" th:object="${accountEditForm}" method="post">
+
+                <div class="notice notice--error" th:if="${#fields.hasGlobalErrors()}" role="alert">
+                    <ul><li th:each="error : ${#fields.globalErrors()}" th:text="${error}">Problem</li></ul>
+                </div>
+
+                <div class="field">
+                    <label for="name">Name</label>
+                    <input type="text" id="name" th:field="*{name}" maxlength="100" autocomplete="off"
+                           th:attr="aria-invalid=${#fields.hasErrors('name')} ? 'true' : null">
+                    <span class="field__error" th:if="${#fields.hasErrors('name')}"
+                          th:errors="*{name}">Problem</span>
+                </div>
+
+                <div class="field">
+                    <div class="checkbox">
+                        <input type="checkbox" id="active" th:field="*{active}">
+                        <label for="active">Active</label>
+                    </div>
+                    <span class="field__hint">
+                        A deactivated account takes no new entries but keeps every entry it already
+                        has, and still appears in reports.
+                    </span>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Save changes</button>
+                    <a class="btn" th:href="@{/accounts}">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

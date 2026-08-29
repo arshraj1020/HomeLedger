@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<!--/*
+  Spring Boot's fallback error view, for anything that reaches the container's
+  error dispatch rather than a @ExceptionHandler — a mistyped URL, or a failure
+  outside a UI controller.
+
+  It shows the status and nothing else. server.error.include-message and
+  include-stacktrace are at their defaults ("never"), so there is no exception
+  detail in the model to leak even by accident.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Something went wrong · HomeLedger</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main id="main" class="signin">
+    <div class="signin__panel">
+        <div class="signin__brand">
+            <span class="brand">
+                <span class="brand__mark" aria-hidden="true">₹</span>
+                <span>HomeLedger</span>
+            </span>
+        </div>
+        <div class="card">
+            <div class="card__body">
+                <div class="empty">
+                    <p class="badge badge--quiet" th:text="${status} ?: 'Error'">500</p>
+                    <h1>That didn't work</h1>
+                    <p>The page couldn't be shown. Nothing was changed by this request.</p>
+                    <a class="btn btn--primary" th:href="@{/}">Back to the dashboard</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+</body>
+</html>

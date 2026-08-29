@@ -80,6 +80,38 @@ mvn verify         # adds integration tests + ArchUnit against a real Postgres c
 
 Coverage report after `mvn verify`: `target/site/jacoco/index.html`.
 
+## Web interface
+
+Server-rendered Thymeleaf (PRD §FR-7), reachable at `http://localhost:8080` once the app is running. Sign in with a member's email and password.
+
+```
+/                          Dashboard — position, this month's spending, recent entries, balances by type
+/transactions              List with date, account and description filters, paginated
+/transactions/new          Record: simple (one source, one destination), split, or advanced
+/transactions/{id}         Detail as debits and credits, with the reverse action
+/accounts                  Chart of accounts with balances; create and edit are ADMIN-only
+/reports/balance-sheet     All accounts grouped by type, optionally as of a date
+/reports/expenses          Totals by category over a range
+/reports/trial-balance     The sum of every posting, which must be zero
+```
+
+There is **no JavaScript** — not "minimal", none. Everything is a link or a form submission, which is why the pages are served with `Content-Security-Policy: script-src 'none'` and why the split and advanced entry forms offer a fixed set of blank lines instead of an "add row" button. There is no build step and no bundler; the single stylesheet is served as-is.
+
+### Two security chains, deliberately
+
+The API and the UI are authenticated separately, by two `SecurityFilterChain` beans:
+
+| | `/api/**`, docs, actuator | everything else |
+|---|---|---|
+| Credential | `Authorization: Bearer <jwt>` | session cookie from form login |
+| CSRF | off — no cookie to ride | **on** — Thymeleaf's `th:action` adds the token |
+| Anonymous request | `401` | redirect to `/login` |
+| Session | stateless | `IF_REQUIRED`, id rotated on login |
+
+Merging them would mean either running the browser UI without CSRF protection or making the API answer clients with HTML login pages. **No JWT is ever issued to the browser**, so there is no token in a cookie or in the page for a script to read; the session cookie is the only credential a browser holds, and a browser session does not authenticate the API.
+
+Both doors enforce the same rules with the same code: household scoping comes from the authenticated principal (`AuthenticatedMember`) in both cases, `@PreAuthorize("hasRole('ADMIN')")` guards account management in both, and another household's resource is **404, not 403** in both. Only the error rendering differs — the API returns RFC 7807 problem documents, the UI returns pages — and the UI's pages carry fixed messages, never the exception's, so no identifier reaches the browser.
+
 ## API
 
 All endpoints require a bearer token except the auth endpoints themselves. The household is taken from the verified JWT and never from a path or body, so a request cannot name someone else's household. Resources belonging to another household return **404, not 403** — a 403 would confirm they exist.
@@ -203,7 +235,8 @@ household-ledger/
 - **Domain unit tests** — plain JUnit, no Spring context, no database.
 - **Property-based tests (jqwik)** — random posting sets; balanced sets accepted, unbalanced sets rejected, across 1000+ generated cases each. Phase 4 adds the complementary property for the entry modes: however a user describes a movement of money, the postings produced always sum to zero — so a well-formed request can never reach, let alone trip, the database trigger.
 - **Integration tests (Testcontainers, real Postgres)** — the invariant, immutability, and cross-household isolation are tested against a real Postgres container. The invariant cannot be verified against H2, so this project never uses an in-memory database for anything invariant-related.
-- **Architecture tests (ArchUnit)** — module boundary enforcement: no module reaches another's `internal` package, every cross-module dependency is one-way (so the graph stays acyclic), `shared` depends on nothing, and every `domain`/`api` package is free of Spring, JPA and Jakarta types.
+- **Architecture tests (ArchUnit)** — module boundary enforcement: no module reaches another's `internal` package, every cross-module dependency is one-way (so the graph stays acyclic), `shared` depends on nothing, and every `domain`/`api` package is free of Spring, JPA and Jakarta types. Phase 7 adds four rules for the UI: it renders views rather than serialising response bodies, it never touches JWTs or persistence frameworks, and nothing depends on it — so it stays replaceable (PRD §11 lists a React frontend as future scope).
+- **Web tests (MockMvc against real Postgres)** — every screen, the real form-login and logout flow, CSRF enforcement on every write, the ADMIN-only restriction, and the household-isolation rule that another household's resource is 404 and its page names nothing about what was asked for.
 
 ## Build sequence
 

@@ -21,7 +21,11 @@ spring:
     locations: classpath:db/migration
 
   thymeleaf:
-    cache: false
+    # Cached by default, because Phase 7 gives the application real templates
+    # and an uncached engine re-parses every one of them on every request —
+    # straight into the PRD §5 p95 target. Set THYMELEAF_CACHE=false while
+    # working on the UI to see edits without a restart.
+    cache: ${THYMELEAF_CACHE:true}
 
 security:
   jwt:
@@ -51,6 +55,16 @@ springdoc:
 
 server:
   port: ${PORT:8080}
+  error:
+    # These are Boot's defaults, stated explicitly because the browser error
+    # page renders whatever is in the error model. PRD §9 requires that
+    # implementation details, stack traces and SQL never reach a client, and a
+    # future "just for debugging" flip of one of these would leak all three
+    # into a page rather than into a log.
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+    include-exception: false
 
 logging:
   level:

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<!--/*
+  Expenses by category over a date range (PRD §FR-5).
+
+  Only categories with activity in the range appear — a summary of what was
+  spent, not a roll-call of every category that exists. An empty result is a
+  successful answer meaning "nothing was spent", not an error.
+
+  A category can legitimately come out at zero (its only entry was reversed) or
+  negative (a refund exceeded the spending in the period), and the report says
+  so rather than hiding it.
+
+  The bar widths are CSS classes, not inline styles: the UI is served with a
+  Content Security Policy that forbids inline styles.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Expenses', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="page__head">
+        <div>
+            <h1>Expenses</h1>
+            <p>What the household spent, grouped by category.</p>
+        </div>
+    </div>
+
+    <ul class="tabs" role="list">
+        <li><a th:href="@{/reports/balance-sheet}">Balance sheet</a></li>
+        <li><a th:href="@{/reports/expenses}" aria-current="page">Expenses</a></li>
+        <li><a th:href="@{/reports/trial-balance}">Trial balance</a></li>
+    </ul>
+
+    <div class="card">
+        <div class="card__body">
+            <form th:action="@{/reports/expenses}" method="get">
+                <div class="grid grid--tight">
+                    <div class="field">
+                        <label for="from">From</label>
+                        <input type="date" id="from" name="from"
+                               th:value="${#temporals.format(from, 'yyyy-MM-dd')}">
+                    </div>
+                    <div class="field">
+                        <label for="to">To</label>
+                        <input type="date" id="to" name="to"
+                               th:value="${#temporals.format(to, 'yyyy-MM-dd')}">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Show</button>
+                    <span class="small muted">Both days are included.</span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="notice notice--error" th:if="${rangeError}" role="alert" th:text="${rangeError}">
+        Range problem.
+    </div>
+
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h2>
+                    <span th:text="${#temporals.format(from, 'd MMM yyyy')}">1 Jan 2026</span>
+                    to
+                    <span th:text="${#temporals.format(to, 'd MMM yyyy')}">31 Jan 2026</span>
+                </h2>
+                <p>Inclusive of both days.</p>
+            </div>
+            <p class="num"><strong th:text="${total}">0.00</strong></p>
+        </div>
+
+        <div class="scroller" th:unless="${empty}">
+            <table>
+                <caption class="visually-hidden">Expenses by category</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Category</th>
+                    <th scope="col" class="bar-cell">Share</th>
+                    <th scope="col" class="num">Total</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${rows}">
+                    <td>
+                        <a th:href="@{/transactions(accountId=${row.accountId},from=${from},to=${to})}"
+                           th:text="${row.accountName}">Groceries</a>
+                    </td>
+                    <td class="bar-cell">
+                        <span class="bar-track">
+                            <span class="bar" th:classappend="${row.barClass}"
+                                  th:attr="aria-hidden='true'"></span>
+                        </span>
+                        <span class="visually-hidden"
+                              th:text="${row.sharePercent} + ' percent of the period total'">0 percent</span>
+                    </td>
+                    <td class="num" th:classappend="${row.negative} ? 'neg'"
+                        th:text="${row.total}">0.00</td>
+                </tr>
+                </tbody>
+                <tfoot>
+                <tr>
+                    <td colspan="2">Total</td>
+                    <td class="num" th:text="${total}">0.00</td>
+                </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="empty" th:if="${empty}">
+            <h3>Nothing was spent in this period</h3>
+            <p>That is an answer, not a problem. Try a wider range, or record a transaction.</p>
+            <a class="btn" th:href="@{/transactions/new}">Record a transaction</a>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

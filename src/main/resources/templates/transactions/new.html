@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<!--/*
+  Recording a transaction (PRD §FR-3, §FR-7).
+
+  Three modes, three tabs, three forms. The tabs are ordinary links to
+  ?mode=..., so switching is a page load: there is no JavaScript in this
+  application, and a form that needed scripting to work would be a form that
+  silently fails when scripting does.
+
+  Simple mode is the default and is what PRD §FR-3 calls "the default path
+  [which] handles well over 90% of real entries". Raw mode is reachable but is
+  not in the main navigation, matching PRD §FR-3's "not surfaced prominently in
+  the UI".
+
+  Split and raw rows are a fixed set of blank lines rather than a button that
+  adds one. Rows left empty are ignored.
+
+  Amounts are typed as rupees and paise and parsed to integer minor units by
+  MoneyInput; nothing in this page or in the ledger ever holds money in a
+  floating-point number (PRD §3.3).
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Record a transaction', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="page__head">
+        <div>
+            <h1>Record a transaction</h1>
+            <p>Say where the money came from and where it went. The two sides are written for you.</p>
+        </div>
+        <div class="page__actions">
+            <a class="btn" th:href="@{/transactions}">Back to list</a>
+        </div>
+    </div>
+
+    <div class="card" th:unless="${hasAccounts}">
+        <div class="card__body">
+            <div class="empty">
+                <h3>There are no active accounts yet</h3>
+                <p>A transaction moves money between accounts, so there have to be at least two
+                    before anything can be recorded.</p>
+                <a class="btn btn--primary" th:href="@{/accounts}" th:if="${currentMemberIsAdmin}">Add accounts</a>
+                <p class="small" th:unless="${currentMemberIsAdmin}">Ask a household admin to add some.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" th:if="${hasAccounts}">
+        <ul class="tabs">
+            <li><a th:href="@{/transactions/new(mode='simple')}"
+                   th:attr="aria-current=${mode == 'simple'} ? 'page' : null">Simple</a></li>
+            <li><a th:href="@{/transactions/new(mode='split')}"
+                   th:attr="aria-current=${mode == 'split'} ? 'page' : null">Split</a></li>
+            <li><a th:href="@{/transactions/new(mode='raw')}"
+                   th:attr="aria-current=${mode == 'raw'} ? 'page' : null">Advanced</a></li>
+        </ul>
+
+        <!--/* ------------------------------------------------------ simple */-->
+        <div class="card__body" th:if="${mode == 'simple'}">
+            <form th:action="@{/transactions/new/simple}" th:object="${simpleForm}" method="post">
+
+                <div class="notice notice--error" th:if="${#fields.hasGlobalErrors()}" role="alert">
+                    <ul><li th:each="error : ${#fields.globalErrors()}" th:text="${error}">Problem</li></ul>
+                </div>
+
+                <div class="grid">
+                    <div class="field">
+                        <label for="s-date">Date</label>
+                        <input type="date" id="s-date" th:field="*{occurredOn}"
+                               th:attr="aria-invalid=${#fields.hasErrors('occurredOn')} ? 'true' : null">
+                        <span class="field__error" th:if="${#fields.hasErrors('occurredOn')}"
+                              th:errors="*{occurredOn}">Problem</span>
+                    </div>
+                    <div class="field">
+                        <label for="s-amount">Amount</label>
+                        <input type="text" id="s-amount" class="amount" th:field="*{amount}"
+                               inputmode="decimal" autocomplete="off" placeholder="1234.50"
+                               th:attr="aria-invalid=${#fields.hasErrors('amount')} ? 'true' : null">
+                        <span class="field__error" th:if="${#fields.hasErrors('amount')}"
+                              th:errors="*{amount}">Problem</span>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="s-description">Description</label>
+                    <input type="text" id="s-description" th:field="*{description}" maxlength="500"
+                           autocomplete="off" placeholder="Weekly groceries"
+                           th:attr="aria-invalid=${#fields.hasErrors('description')} ? 'true' : null">
+                    <span class="field__error" th:if="${#fields.hasErrors('description')}"
+                          th:errors="*{description}">Problem</span>
+                </div>
+
+                <div class="grid">
+                    <div class="field">
+                        <label for="s-from">Money came from</label>
+                        <span class="field__hint">The account it was paid out of.</span>
+                        <select id="s-from" th:field="*{fromAccountId}"
+                                th:attr="aria-invalid=${#fields.hasErrors('fromAccountId')} ? 'true' : null">
+                            <option value="">Choose an account…</option>
+                            <optgroup th:each="group : ${accountGroups}" th:label="${group.heading}">
+                                <option th:each="option : ${group.options}"
+                                        th:value="${option.id}" th:text="${option.name}">Cash</option>
+                            </optgroup>
+                        </select>
+                        <span class="field__error" th:if="${#fields.hasErrors('fromAccountId')}"
+                              th:errors="*{fromAccountId}">Problem</span>
+                    </div>
+                    <div class="field">
+                        <label for="s-to">Money went to</label>
+                        <span class="field__hint">The category or account it went into.</span>
+                        <select id="s-to" th:field="*{toAccountId}"
+                                th:attr="aria-invalid=${#fields.hasErrors('toAccountId')} ? 'true' : null">
+                            <option value="">Choose an account…</option>
+                            <optgroup th:each="group : ${accountGroups}" th:label="${group.heading}">
+                                <option th:each="option : ${group.options}"
+                                        th:value="${option.id}" th:text="${option.name}">Groceries</option>
+                            </optgroup>
+                        </select>
+                        <span class="field__error" th:if="${#fields.hasErrors('toAccountId')}"
+                              th:errors="*{toAccountId}">Problem</span>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Record</button>
+                    <span class="small muted">The two postings and their signs are worked out for you.</span>
+                </div>
+            </form>
+        </div>
+
+        <!--/* ------------------------------------------------------- split */-->
+        <div class="card__body" th:if="${mode == 'split'}">
+            <form th:action="@{/transactions/new/split}" th:object="${splitForm}" method="post">
+
+                <div class="notice notice--error" th:if="${#fields.hasGlobalErrors()}" role="alert">
+                    <ul><li th:each="error : ${#fields.globalErrors()}" th:text="${error}">Problem</li></ul>
+                </div>
+
+                <div class="grid">
+                    <div class="field">
+                        <label for="p-date">Date</label>
+                        <input type="date" id="p-date" th:field="*{occurredOn}"
+                               th:attr="aria-invalid=${#fields.hasErrors('occurredOn')} ? 'true' : null">
+                        <span class="field__error" th:if="${#fields.hasErrors('occurredOn')}"
+                              th:errors="*{occurredOn}">Problem</span>
+                    </div>
+                    <div class="field">
+                        <label for="p-from">Money came from</label>
+                        <select id="p-from" th:field="*{fromAccountId}"
+                                th:attr="aria-invalid=${#fields.hasErrors('fromAccountId')} ? 'true' : null">
+                            <option value="">Choose an account…</option>
+                            <optgroup th:each="group : ${accountGroups}" th:label="${group.heading}">
+                                <option th:each="option : ${group.options}"
+                                        th:value="${option.id}" th:text="${option.name}">Bank</option>
+                            </optgroup>
+                        </select>
+                        <span class="field__error" th:if="${#fields.hasErrors('fromAccountId')}"
+                              th:errors="*{fromAccountId}">Problem</span>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="p-description">Description</label>
+                    <input type="text" id="p-description" th:field="*{description}" maxlength="500"
+                           autocomplete="off" placeholder="Supermarket shop"
+                           th:attr="aria-invalid=${#fields.hasErrors('description')} ? 'true' : null">
+                    <span class="field__error" th:if="${#fields.hasErrors('description')}"
+                          th:errors="*{description}">Problem</span>
+                </div>
+
+                <fieldset>
+                    <legend class="field__legend">Where it went</legend>
+                    <span class="field__hint">
+                        Fill in as many lines as you need and leave the rest blank. The source account
+                        is credited the exact total, so there is no remainder to work out.
+                    </span>
+
+                    <div class="grid grid--tight" th:each="row, stat : *{destinations}">
+                        <div class="field">
+                            <label th:for="'p-account-' + ${stat.index}" class="visually-hidden"
+                                   th:text="'Account for line ' + ${stat.count}">Account</label>
+                            <select th:id="'p-account-' + ${stat.index}"
+                                    th:field="*{destinations[__${stat.index}__].accountId}"
+                                    th:attr="aria-invalid=${#fields.hasErrors('destinations[__${stat.index}__].accountId')} ? 'true' : null">
+                                <option value="">Line not used</option>
+                                <optgroup th:each="group : ${accountGroups}" th:label="${group.heading}">
+                                    <option th:each="option : ${group.options}"
+                                            th:value="${option.id}" th:text="${option.name}">Groceries</option>
+                                </optgroup>
+                            </select>
+                            <span class="field__error"
+                                  th:if="${#fields.hasErrors('destinations[__${stat.index}__].accountId')}"
+                                  th:errors="*{destinations[__${stat.index}__].accountId}">Problem</span>
+                        </div>
+                        <div class="field">
+                            <label th:for="'p-amount-' + ${stat.index}" class="visually-hidden"
+                                   th:text="'Amount for line ' + ${stat.count}">Amount</label>
+                            <input type="text" class="amount" th:id="'p-amount-' + ${stat.index}"
+                                   inputmode="decimal" autocomplete="off" placeholder="0.00"
+                                   th:field="*{destinations[__${stat.index}__].amount}"
+                                   th:attr="aria-invalid=${#fields.hasErrors('destinations[__${stat.index}__].amount')} ? 'true' : null">
+                            <span class="field__error"
+                                  th:if="${#fields.hasErrors('destinations[__${stat.index}__].amount')}"
+                                  th:errors="*{destinations[__${stat.index}__].amount}">Problem</span>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Record</button>
+                    <span class="small muted">Blank lines are ignored.</span>
+                </div>
+            </form>
+        </div>
+
+        <!--/* --------------------------------------------------------- raw */-->
+        <div class="card__body" th:if="${mode == 'raw'}">
+            <form th:action="@{/transactions/new/raw}" th:object="${rawForm}" method="post">
+
+                <div class="notice notice--warn" role="note">
+                    Advanced entry writes the postings exactly as you type them. Debits are positive,
+                    credits negative, and the lines must add up to zero. Simple and split entry work
+                    this out for you and are the better choice for almost everything.
+                </div>
+
+                <div class="notice notice--error" th:if="${#fields.hasGlobalErrors()}" role="alert">
+                    <ul><li th:each="error : ${#fields.globalErrors()}" th:text="${error}">Problem</li></ul>
+                </div>
+
+                <div class="grid">
+                    <div class="field">
+                        <label for="r-date">Date</label>
+                        <input type="date" id="r-date" th:field="*{occurredOn}"
+                               th:attr="aria-invalid=${#fields.hasErrors('occurredOn')} ? 'true' : null">
+                        <span class="field__error" th:if="${#fields.hasErrors('occurredOn')}"
+                              th:errors="*{occurredOn}">Problem</span>
+                    </div>
+                    <div class="field">
+                        <label for="r-description">Description</label>
+                        <input type="text" id="r-description" th:field="*{description}" maxlength="500"
+                               autocomplete="off"
+                               th:attr="aria-invalid=${#fields.hasErrors('description')} ? 'true' : null">
+                        <span class="field__error" th:if="${#fields.hasErrors('description')}"
+                              th:errors="*{description}">Problem</span>
+                    </div>
+                </div>
+
+                <fieldset>
+                    <legend class="field__legend">Postings</legend>
+                    <span class="field__hint">At least two lines, adding to zero.</span>
+
+                    <div class="grid grid--tight" th:each="row, stat : *{postings}">
+                        <div class="field">
+                            <label th:for="'r-account-' + ${stat.index}" class="visually-hidden"
+                                   th:text="'Account for posting ' + ${stat.count}">Account</label>
+                            <select th:id="'r-account-' + ${stat.index}"
+                                    th:field="*{postings[__${stat.index}__].accountId}"
+                                    th:attr="aria-invalid=${#fields.hasErrors('postings[__${stat.index}__].accountId')} ? 'true' : null">
+                                <option value="">Line not used</option>
+                                <optgroup th:each="group : ${accountGroups}" th:label="${group.heading}">
+                                    <option th:each="option : ${group.options}"
+                                            th:value="${option.id}" th:text="${option.name}">Cash</option>
+                                </optgroup>
+                            </select>
+                            <span class="field__error"
+                                  th:if="${#fields.hasErrors('postings[__${stat.index}__].accountId')}"
+                                  th:errors="*{postings[__${stat.index}__].accountId}">Problem</span>
+                        </div>
+                        <div class="field">
+                            <label th:for="'r-amount-' + ${stat.index}" class="visually-hidden"
+                                   th:text="'Signed amount for posting ' + ${stat.count}">Signed amount</label>
+                            <input type="text" class="amount" th:id="'r-amount-' + ${stat.index}"
+                                   inputmode="decimal" autocomplete="off" placeholder="-1234.50"
+                                   th:field="*{postings[__${stat.index}__].amount}"
+                                   th:attr="aria-invalid=${#fields.hasErrors('postings[__${stat.index}__].amount')} ? 'true' : null">
+                            <span class="field__error"
+                                  th:if="${#fields.hasErrors('postings[__${stat.index}__].amount')}"
+                                  th:errors="*{postings[__${stat.index}__].amount}">Problem</span>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Record</button>
+                    <span class="small muted">Blank lines are ignored.</span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

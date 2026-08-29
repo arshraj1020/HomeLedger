@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!--/*
+  The trial balance (PRD §FR-6).
+
+  "This exists to be demonstrable. It is the observable proof that the
+  invariant holds across the whole dataset, not just at write time."
+
+  The posting count sits next to the total deliberately. Zero is what a healthy
+  ledger reports and also what an empty one reports, and a page showing only
+  "0.00" would be presenting the absence of data as proof of correctness.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Trial balance', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="page__head">
+        <div>
+            <h1>Trial balance</h1>
+            <p>Every posting in your household, added up. It has to come to zero.</p>
+        </div>
+    </div>
+
+    <ul class="tabs" role="list">
+        <li><a th:href="@{/reports/balance-sheet}">Balance sheet</a></li>
+        <li><a th:href="@{/reports/expenses}">Expenses</a></li>
+        <li><a th:href="@{/reports/trial-balance}" aria-current="page">Trial balance</a></li>
+    </ul>
+
+    <ul class="stats">
+        <li class="stat">
+            <span class="stat__label">Sum of all postings</span>
+            <span class="stat__value" th:classappend="${trialBalance.balanced} ? '' : 'neg'"
+                  th:text="${trialBalance.total}">0.00</span>
+            <span class="stat__note">Debits positive, credits negative</span>
+        </li>
+        <li class="stat">
+            <span class="stat__label">Postings counted</span>
+            <span class="stat__value" th:text="${trialBalance.postingCount}">0</span>
+            <span class="stat__note">A zero total means nothing without this</span>
+        </li>
+        <li class="stat">
+            <span class="stat__label">Result</span>
+            <span class="stat__value">
+                <span class="badge badge--ok"
+                      th:if="${trialBalance.balanced and !trialBalance.emptyLedger}">Balanced</span>
+                <span class="badge badge--quiet" th:if="${trialBalance.emptyLedger}">No postings yet</span>
+                <span class="badge badge--alert" th:unless="${trialBalance.balanced}">Out of balance</span>
+            </span>
+            <span class="stat__note">Checked across the whole household</span>
+        </li>
+    </ul>
+
+    <div class="card" th:if="${trialBalance.balanced and !trialBalance.emptyLedger}">
+        <div class="card__body">
+            <p>Every transaction in this household has postings that cancel out, and so does the
+                household as a whole. That is checked three independent ways when an entry is written —
+                in the domain model, in the service, and by a database constraint — and this page
+                checks it again after the fact, over everything already stored.</p>
+        </div>
+    </div>
+
+    <div class="card" th:unless="${trialBalance.balanced}">
+        <div class="card__head">
+            <div>
+                <h2>Transactions that don't balance</h2>
+                <p>These should not exist. Each is shown with how far off it is.</p>
+            </div>
+        </div>
+        <div class="scroller" th:unless="${#lists.isEmpty(trialBalance.unbalanced)}">
+            <table>
+                <caption class="visually-hidden">Unbalanced transactions</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Transaction</th>
+                    <th scope="col" class="num">Off by</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${trialBalance.unbalanced}">
+                    <td><a th:href="@{/transactions/{id}(id=${row.transactionId})}"
+                           th:text="${row.transactionId}">id</a></td>
+                    <td class="num neg" th:text="${row.offBy}">0.00</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card__body" th:if="${#lists.isEmpty(trialBalance.unbalanced)}">
+            <p>The household total is not zero even though no single transaction is off on its own.
+                That combination points at postings belonging to a transaction that is no longer
+                there, rather than at one bad entry.</p>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

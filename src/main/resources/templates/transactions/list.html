@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<!--/*
+  The transaction list with filters (PRD §FR-5, §FR-7).
+
+  The filter bar is a GET form, so a filtered view has a URL that can be
+  bookmarked, shared or reloaded — and so the browser's back button does what
+  a reader expects. Spring Security adds no CSRF token to a GET form, and none
+  is needed: the request changes nothing.
+
+  There is no household field anywhere in this form. The household comes from
+  the session's principal in the controller (PRD §FR-1), and there is
+  deliberately nothing here for a crafted request parameter to bind to.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Transactions', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="notice notice--ok" th:if="${flash}" role="status" th:text="${flash}">Done.</div>
+
+    <div class="page__head">
+        <div>
+            <h1>Transactions</h1>
+            <p>Every entry in your household, newest first.</p>
+        </div>
+        <div class="page__actions">
+            <a class="btn btn--primary" th:href="@{/transactions/new}">Record a transaction</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card__body">
+            <form th:action="@{/transactions}" th:object="${filter}" method="get">
+                <div class="grid grid--tight">
+                    <div class="field">
+                        <label for="from">From</label>
+                        <input type="date" id="from" th:field="*{from}">
+                    </div>
+                    <div class="field">
+                        <label for="to">To</label>
+                        <input type="date" id="to" th:field="*{to}">
+                    </div>
+                    <div class="field">
+                        <label for="accountId">Account</label>
+                        <select id="accountId" th:field="*{accountId}">
+                            <option value="">Any account</option>
+                            <optgroup th:each="group : ${accountGroups}" th:label="${group.heading}">
+                                <option th:each="option : ${group.options}"
+                                        th:value="${option.id}"
+                                        th:text="${option.active} ? ${option.name} : ${option.name} + ' (deactivated)'">Cash</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="q">Description contains</label>
+                        <input type="search" id="q" th:field="*{q}" autocomplete="off"
+                               placeholder="groceries">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Apply filters</button>
+                    <a class="btn" th:href="@{/transactions}" th:if="${filterActive}">Clear</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="notice notice--error" th:if="${filterError}" role="alert" th:text="${filterError}">
+        Problem with the filter.
+    </div>
+
+    <div class="card">
+        <div th:if="${!pageBar.empty}" class="scroller">
+            <table>
+                <caption class="visually-hidden">Transactions</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">Accounts</th>
+                    <th scope="col" class="num">Amount</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="txn : ${transactions}">
+                    <td class="date" th:text="${#temporals.format(txn.occurredOn, 'd MMM yyyy')}">1 Jan 2026</td>
+                    <td>
+                        <a th:href="@{/transactions/{id}(id=${txn.id})}" th:text="${txn.description}">Groceries</a>
+                        <span class="badge badge--quiet" th:if="${txn.reversed}">Reversed</span>
+                        <span class="badge badge--quiet" th:if="${txn.reversal}">Reversal</span>
+                    </td>
+                    <td class="muted small" th:text="${txn.summary}">Cash → Groceries</td>
+                    <td class="num" th:text="${txn.amount}">0.00</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div th:if="${pageBar.empty}" class="empty">
+            <h3>No transactions match</h3>
+            <p th:if="${filterActive}">Try widening the dates, or clearing the filters.</p>
+            <p th:unless="${filterActive}">Nothing has been recorded in this household yet.</p>
+            <a class="btn btn--primary" th:href="@{/transactions/new}" th:unless="${filterActive}">Record one</a>
+        </div>
+
+        <div class="pager" th:if="${!pageBar.empty}">
+            <span>
+                Showing <span th:text="${pageBar.firstItem}">1</span>–<span
+                    th:text="${pageBar.lastItem}">25</span>
+                of <span th:text="${pageBar.totalElements}">137</span>
+            </span>
+            <span class="pager__links">
+                <a class="btn btn--small" th:if="${pageBar.hasPrevious}"
+                   th:href="@{/transactions(from=${filter.from},to=${filter.to},accountId=${filter.accountId},q=${filter.q},page=${pageBar.previousPage},size=${pageBar.size})}">Previous</a>
+                <span class="btn btn--small btn--disabled" th:unless="${pageBar.hasPrevious}"
+                      aria-disabled="true">Previous</span>
+
+                <span class="btn btn--small btn--disabled" aria-current="page">
+                    Page <span th:text="${pageBar.displayPage}">1</span>
+                    of <span th:text="${pageBar.totalPages}">6</span>
+                </span>
+
+                <a class="btn btn--small" th:if="${pageBar.hasNext}"
+                   th:href="@{/transactions(from=${filter.from},to=${filter.to},accountId=${filter.accountId},q=${filter.q},page=${pageBar.nextPage},size=${pageBar.size})}">Next</a>
+                <span class="btn btn--small btn--disabled" th:unless="${pageBar.hasNext}"
+                      aria-disabled="true">Next</span>
+            </span>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

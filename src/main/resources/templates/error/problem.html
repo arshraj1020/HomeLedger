@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!--/*
+  The page for a request that could not be completed: not found, not allowed,
+  in conflict, or refused as invalid (PRD §9).
+
+  The message comes from UiExceptionHandler and is a fixed string chosen for
+  the condition. Nothing from the exception is rendered — no identifiers, no
+  stack trace, no SQL — because an id that resolves for one member and not
+  another is exactly the existence signal that answering 404 instead of 403 is
+  meant to suppress.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page(${problemTitle}, ~{::main})}">
+<body>
+<main id="main" class="page">
+    <div class="card">
+        <div class="card__body">
+            <div class="empty">
+                <p class="badge badge--quiet" th:text="${problemStatus}">404</p>
+                <h1 th:text="${problemTitle}">Not found</h1>
+                <p th:text="${problemMessage}">We couldn't find that.</p>
+                <p class="row">
+                    <a class="btn" th:href="@{/}">Back to the dashboard</a>
+                    <a class="btn" th:href="@{/transactions}">Transactions</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</main>
+</body>
+</html>

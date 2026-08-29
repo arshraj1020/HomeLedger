@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<!--/*
+  The dashboard (PRD §FR-7: "account balances grouped by type").
+
+  Ordered by the questions PRD §2.3 says a household opens this to ask: where
+  do we stand, what have we spent this month, what was recorded recently, and
+  then the full chart of accounts.
+
+  Every figure is a finished string from ViewAssembler. No template on this
+  page does arithmetic on money.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Dashboard', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="notice notice--ok" th:if="${flash}" role="status" th:text="${flash}">Done.</div>
+
+    <div class="page__head">
+        <div>
+            <h1>Dashboard</h1>
+            <p>Where the household stands right now.</p>
+        </div>
+        <div class="page__actions">
+            <a class="btn btn--primary" th:href="@{/transactions/new}">Record a transaction</a>
+        </div>
+    </div>
+
+    <ul class="stats">
+        <li class="stat">
+            <span class="stat__label">Assets</span>
+            <span class="stat__value" th:text="${assetsTotal}">0.00</span>
+            <span class="stat__note">What the household holds</span>
+        </li>
+        <li class="stat">
+            <span class="stat__label">Liabilities</span>
+            <span class="stat__value" th:text="${liabilitiesTotal}">0.00</span>
+            <span class="stat__note">What it owes</span>
+        </li>
+        <li class="stat">
+            <span class="stat__label">Net position</span>
+            <span class="stat__value" th:classappend="${netPositionNegative} ? 'neg'"
+                  th:text="${netPosition}">0.00</span>
+            <span class="stat__note">Assets less liabilities</span>
+        </li>
+        <li class="stat">
+            <span class="stat__label">Spent this month</span>
+            <span class="stat__value" th:text="${monthExpenses}">0.00</span>
+            <span class="stat__note">
+                <a th:href="@{/reports/expenses(from=${monthFrom},to=${monthTo})}"
+                   th:text="${monthLabel}">This month</a>
+            </span>
+        </li>
+    </ul>
+
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h2>Recent transactions</h2>
+                <p>The most recent entries, newest first.</p>
+            </div>
+            <a class="btn btn--small" th:href="@{/transactions}">See all</a>
+        </div>
+
+        <div th:if="${hasTransactions}" class="scroller">
+            <table>
+                <caption class="visually-hidden">Recent transactions</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">Accounts</th>
+                    <th scope="col" class="num">Amount</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="txn : ${recentTransactions}">
+                    <td class="date" th:text="${#temporals.format(txn.occurredOn, 'd MMM yyyy')}">1 Jan 2026</td>
+                    <td>
+                        <a th:href="@{/transactions/{id}(id=${txn.id})}" th:text="${txn.description}">Groceries</a>
+                        <span class="badge badge--quiet" th:if="${txn.reversed}">Reversed</span>
+                        <span class="badge badge--quiet" th:if="${txn.reversal}">Reversal</span>
+                    </td>
+                    <td class="muted small" th:text="${txn.summary}">Cash → Groceries</td>
+                    <td class="num" th:text="${txn.amount}">0.00</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div th:unless="${hasTransactions}" class="empty">
+            <h3>Nothing recorded yet</h3>
+            <p>Once you record a transaction it will appear here, and the balances above
+                will follow from it.</p>
+            <a class="btn btn--primary" th:href="@{/transactions/new}">Record the first one</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h2>Balances by type</h2>
+                <p>Shown the way a statement reads: a card balance of 4,200 means 4,200 owed.</p>
+            </div>
+            <span class="badge badge--ok" th:if="${ledgerBalanced and !emptyLedger}">Books balance</span>
+            <span class="badge badge--quiet" th:if="${emptyLedger}">No postings yet</span>
+            <span class="badge badge--alert" th:if="${!ledgerBalanced}">Out of balance</span>
+        </div>
+
+        <div class="scroller">
+            <table th:each="section : ${sections}" th:unless="${section.empty}">
+                <caption th:text="${section.heading}">Assets</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Account</th>
+                    <th scope="col" class="num">Balance</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="account : ${section.accounts}">
+                    <td>
+                        <span th:text="${account.name}">Cash</span>
+                        <span class="badge badge--quiet" th:unless="${account.active}">Deactivated</span>
+                    </td>
+                    <td class="num" th:classappend="${account.negative} ? 'neg'"
+                        th:text="${account.balance}">0.00</td>
+                </tr>
+                </tbody>
+                <tfoot>
+                <tr>
+                    <td th:text="'Total ' + ${section.heading?.toLowerCase()}">Total assets</td>
+                    <td class="num" th:text="${section.total}">0.00</td>
+                </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>

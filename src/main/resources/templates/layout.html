@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<!--/*
+  The shared page shell (PRD §FR-7).
+
+  Pages call it as ~{layout :: page('Title', ~{::main})}, which replaces their
+  whole document with this one and drops their <main> into the slot below. It
+  is plain Thymeleaf fragment composition — no layout dialect, so no dependency
+  beyond the Thymeleaf starter already in the build.
+
+  Everything conditional here keys off model attributes set by UiLayoutAdvice,
+  so error pages rendered by an exception handler get the same chrome as
+  ordinary ones.
+
+  Hiding a control the member may not use (the admin-only account actions) is
+  courtesy, not security: @PreAuthorize on the controller is what actually
+  refuses the action if they navigate to it directly.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org" th:fragment="page(pageTitle, content)">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title th:text="${pageTitle} + ' · HomeLedger'">HomeLedger</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="masthead">
+    <div class="masthead__inner">
+        <a class="brand" th:href="@{/}">
+            <span class="brand__mark" aria-hidden="true">₹</span>
+            <span>HomeLedger</span>
+            <span class="brand__sub">double-entry</span>
+        </a>
+
+        <nav class="nav" aria-label="Primary" th:if="${authenticated}">
+            <a th:href="@{/}"
+               th:attr="aria-current=${activeNav == 'dashboard'} ? 'page' : null">Dashboard</a>
+            <a th:href="@{/transactions}"
+               th:attr="aria-current=${activeNav == 'transactions'} ? 'page' : null">Transactions</a>
+            <a th:href="@{/accounts}"
+               th:attr="aria-current=${activeNav == 'accounts'} ? 'page' : null">Accounts</a>
+            <a th:href="@{/reports/balance-sheet}"
+               th:attr="aria-current=${activeNav == 'reports'} ? 'page' : null">Reports</a>
+        </nav>
+
+        <div class="session" th:if="${authenticated}">
+            <span class="session__email" th:text="${currentMemberEmail}">member@example.com</span>
+            <span class="badge badge--quiet" th:if="${currentMemberIsAdmin}">Admin</span>
+            <form th:action="@{/logout}" method="post">
+                <button class="btn btn--small" type="submit">Sign out</button>
+            </form>
+        </div>
+
+        <div class="session" th:unless="${authenticated}">
+            <a class="btn btn--small" th:href="@{/login}">Sign in</a>
+        </div>
+    </div>
+</header>
+
+<div th:replace="${content}">
+    <main id="main"></main>
+</div>
+
+<footer class="colophon">
+    <p>Every amount is stored as a signed integer of paise, and every transaction's
+        postings sum to zero. Balances are derived, never stored.</p>
+</footer>
+
+</body>
+</html>

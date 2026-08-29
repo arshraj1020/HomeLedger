@@ -11,6 +11,7 @@ import com.householdledger.ledger.domain.UnbalancedTransactionException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.net.URI;
@@ -30,7 +31,21 @@ import java.net.URI;
  * general error contract to Phase 8, where this and
  * {@code AuthExceptionHandler} are expected to consolidate.
  */
-@RestControllerAdvice
+/**
+ * Scoped to {@code @RestController} classes as of Phase 7.
+ *
+ * <p>Until the UI existed, an unqualified {@code @RestControllerAdvice}
+ * applied to the only controllers there were, all of them REST. Phase 7 adds
+ * Thymeleaf controllers that throw the very same exceptions, and an
+ * unqualified advice would answer a browser navigation with an RFC 7807 JSON
+ * body instead of a page. Restricting the advice by controller annotation
+ * rather than by package keeps that from depending on which
+ * {@code @ControllerAdvice} happens to be consulted first, and changes
+ * nothing for the API: every API controller is annotated
+ * {@code @RestController}, so the same exceptions still map to the same
+ * statuses and the same problem documents.
+ */
+@RestControllerAdvice(annotations = RestController.class)
 class LedgerExceptionHandler {
 
     private static final String ERROR_BASE = "https://household-ledger/errors/";

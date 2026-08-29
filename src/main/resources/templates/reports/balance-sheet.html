@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!--/*
+  The balance sheet (PRD §FR-5: "all accounts grouped by type with balances").
+
+  Two totals appear, and the difference between them is the point. The per-type
+  totals are presentation figures — a card balance reads as the amount owed
+  (PRD §10) — and they are not supposed to cancel out. The signed total at the
+  bottom is the raw stored arithmetic, and that one must be zero. Publishing
+  only the friendly figures would make the report impossible to reconcile
+  against the trial balance; publishing only the raw ones would show a
+  household a credit-card balance of -4,200.
+*/-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: page('Balance sheet', ~{::main})}">
+<body>
+<main id="main" class="page">
+
+    <div class="page__head">
+        <div>
+            <h1>Balance sheet</h1>
+            <p>Every account with its balance, grouped by type.</p>
+        </div>
+    </div>
+
+    <ul class="tabs" role="list">
+        <li><a th:href="@{/reports/balance-sheet}" aria-current="page">Balance sheet</a></li>
+        <li><a th:href="@{/reports/expenses}">Expenses</a></li>
+        <li><a th:href="@{/reports/trial-balance}">Trial balance</a></li>
+    </ul>
+
+    <div class="card">
+        <div class="card__body">
+            <form th:action="@{/reports/balance-sheet}" method="get">
+                <div class="grid grid--tight">
+                    <div class="field">
+                        <label for="asOf">As of</label>
+                        <span class="field__hint">Include entries dated on or before this day. Leave blank for today.</span>
+                        <input type="date" id="asOf" name="asOf"
+                               th:value="${asOf != null} ? ${#temporals.format(asOf, 'yyyy-MM-dd')} : ''">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn--primary" type="submit">Show</button>
+                    <a class="btn" th:href="@{/reports/balance-sheet}" th:if="${asOf != null}">Current position</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card__head">
+            <div>
+                <h2>
+                    Balances
+                    <span class="muted small" th:if="${asOf != null}"
+                          th:text="'as of ' + ${#temporals.format(asOf, 'd MMMM yyyy')}">as of a date</span>
+                </h2>
+                <p>Shown the way a statement reads, so an amount owed appears as a positive number.</p>
+            </div>
+            <span class="badge badge--ok" th:if="${balanced}">Signed total is zero</span>
+            <span class="badge badge--alert" th:unless="${balanced}">Signed total is not zero</span>
+        </div>
+
+        <div class="scroller">
+            <table th:each="section : ${sections}" th:unless="${section.empty}">
+                <caption th:text="${section.heading}">Assets</caption>
+                <thead>
+                <tr>
+                    <th scope="col">Account</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="num">Balance</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="account : ${section.accounts}">
+                    <td th:text="${account.name}">Cash</td>
+                    <td>
+                        <span class="badge badge--quiet" th:unless="${account.active}">Deactivated</span>
+                        <span class="badge badge--quiet" th:if="${account.signFlipped}">Credit-normal</span>
+                    </td>
+                    <td class="num" th:classappend="${account.negative} ? 'neg'"
+                        th:text="${account.balance}">0.00</td>
+                </tr>
+                </tbody>
+                <tfoot>
+                <tr>
+                    <td colspan="2" th:text="'Total ' + ${section.heading?.toLowerCase()}">Total assets</td>
+                    <td class="num" th:text="${section.total}">0.00</td>
+                </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="pager">
+            <span>
+                Raw signed total across every account, which must be zero:
+                <strong class="num" th:text="${signedTotal}">0.00</strong>
+            </span>
+            <a class="btn btn--small" th:href="@{/reports/trial-balance}">Trial balance</a>
+        </div>
+    </div>
+
+</main>
+</body>
+</html>
